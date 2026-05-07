@@ -10,15 +10,16 @@ redact-ai is a privacy-first tool that detects and removes sensitive personal da
 
 People frequently paste sensitive information into AI tools:
 
-- Medical reports  
-- Financial statements  
-- Government IDs  
-- Personal contact details  
+- Medical reports
+- Financial statements
+- Government IDs
+- Personal contact details
 
 This creates risks:
-- Data leakage  
-- Unintentional exposure of private data  
-- Compliance issues in professional settings  
+
+- Data leakage
+- Unintentional exposure of private data
+- Compliance issues in professional settings
 
 There is currently no simple tool that sanitizes data before AI usage.
 
@@ -26,4 +27,7 @@ There is currently no simple tool that sanitizes data before AI usage.
 
 ## 💡 Solution
 
-redact-ai acts as a **privacy preprocessing layer**:
+redact-ai acts as a privacy preprocessing layer:
+
+```text
+User Input → PII Detection → Redaction → Safe Output → AI Tool
