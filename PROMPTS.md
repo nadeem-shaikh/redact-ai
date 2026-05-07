@@ -82,3 +82,89 @@ Additional Guidance:
 - SECURITY_v0.1.md should define privacy guarantees and threat considerations
 
 The final output should look like a professional open-source project scaffold prepared for future development.
+
+---
+
+## Prompt 2 — Tech stack options analysis
+
+You are a senior software architect and AI product engineer.
+I am building an open-source project called `redact-ai`.
+---
+## Product Summary
+redact-ai is a privacy-first tool that detects and redacts sensitive personal information (PII) from screenshots, images, PDFs, and text before users send them to AI tools like ChatGPT or Claude.
+Core capabilities:
+- OCR for images/screenshots
+- PII detection (names, phone numbers, emails, IDs, financial/medical data)
+- Redaction engine (blur/block/overlay)
+- Safe output generation
+- Future: browser extension + API + SaaS
+---
+## Your Task
+Design and compare the MOST suitable tech stack options for building this system.
+You MUST:
+### 1. Provide 2–4 viable tech stack options
+Each option should represent a different architectural approach, such as:
+- Local-first CLI tool
+- Python AI/ML-centric pipeline
+- Hybrid API + frontend architecture
+- Scalable SaaS-ready system
+---
+### 2. For EACH stack option include:
+#### A. Stack Description
+- Programming languages
+- Core frameworks/libraries
+- OCR approach/tools
+- PII detection approach
+- Image processing tools
+- CLI/API/UI structure
+#### B. Pros
+- Strengths of the stack
+- Performance advantages
+- Developer experience
+- Scalability potential
+- Ecosystem maturity
+#### C. Cons
+- Weaknesses
+- Complexity
+- Maintenance overhead
+- Deployment difficulty
+- Tradeoffs
+#### D. Best Fit
+- When to choose this stack
+- What stage of product it fits (MVP / scale / enterprise)
+---
+### 3. Final Recommendation Section
+Provide:
+- Recommended stack for MVP (v0.1)
+- Recommended stack for scaling (v1.0+)
+- Clear reasoning for both choices
+---
+## OUTPUT REQUIREMENT (IMPORTANT)
+Instead of plain text output, you must generate a **Markdown file content** that is ready to be saved inside the repository.
+### File details:
+- File path: `/docs/TECH_STACK_OPTIONS_v0.1.md`
+- Format: clean Markdown
+- Must include:
+  - Title
+  - Sections as described above
+  - Tables where useful
+  - Clear headings
+  - Professional documentation style
+---
+## Constraints
+- Do NOT assume final business model
+- Keep focus on MVP feasibility
+- Prioritize OCR + image redaction use case
+- Avoid over-engineered enterprise-only solutions
+- Assume privacy-first, local-first preference is important
+---
+## Goal
+Help select a tech stack that:
+1. Enables fast MVP development
+2. Supports accurate OCR + PII detection
+3. Is modular and scalable
+4. Can evolve into a production-ready system
+---
+## Output Format
+Return ONLY the full Markdown file content for:
+`/docs/TECH_STACK_OPTIONS_v0.1.md`
