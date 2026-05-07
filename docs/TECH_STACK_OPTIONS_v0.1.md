@@ -26,18 +26,43 @@ confidence.
 
 ---
 
+## Constraints from Existing ADRs
+
+The following decisions are already made and recorded in
+[`DECISIONS.md`](./DECISIONS.md). Any candidate stack **must**
+satisfy all of them — they are not up for re-litigation here.
+
+- **ADR-001** — *Image-first* is the v0.1 input modality. PDFs are
+  v0.3.
+- **ADR-002** — *Local-first by default*. The localhost loopback is
+  considered on-device; no network egress in the default policy.
+- **ADR-004** — *Modular pipeline* (Ingest → OCR → Detect → Redact
+  → Report). Each stage must sit behind an explicit contract so
+  individual components can be swapped without touching the others.
+- **ADR-005** — *Fail closed on uncertainty.* On any error that
+  risks leaking sensitive content, the pipeline produces no output.
+- **ADR-007** — *v0.1 surface is a local web UI.* The v0.1
+  user-visible entry point is a Python server bound to `127.0.0.1`
+  + a single drag-and-drop HTML page.
+
+These constraints rule out any stack that cannot host an in-process
+HTTP server bound to the loopback interface, or that would require
+exfiltrating user content to make detection work.
+
+---
+
 ## Stack Options at a Glance
 
 | # | Stack | One-line summary | Best for |
 | --- | --- | --- | --- |
-| A | **Python local-first** | Pragmatic ML-friendly CLI/library on top of Python's mature OCR + NLP ecosystem. | **MVP (v0.1)** |
+| A | **Python local-first** | Pragmatic ML-friendly local web UI on top of Python's mature OCR ecosystem. | **MVP (v0.1)** |
 | B | **TypeScript / Node + WASM** | Single-language stack that scales naturally to a browser extension and Electron app. | Browser-first product strategy |
 | C | **Rust core with FFI / WASM** | Performance- and privacy-maximalist core, embeddable everywhere. | Long-term privacy ceiling |
 | D | **Hybrid: Python core + TS / Electron shell** | Python pipeline behind a TypeScript desktop UI; combines ML reach with product polish. | **Scaling (v1.0+)** |
 
 ---
 
-## Option A — Python Local-First CLI / Library
+## Option A — Python Local-First (Local Web UI Surface)
 
 ### A.1 Stack Description
 
@@ -47,8 +72,7 @@ confidence.
 | Packaging | `pyproject.toml` + `pipx` for end-user install |
 | OCR | Tesseract (via `pytesseract`) for MVP; PaddleOCR as a swap-in for accuracy |
 | Layout / pre-processing | Pillow + OpenCV |
-| PII detection | Microsoft Presidio (analyzer + recognizers) augmented with project-owned regex/dictionary detectors |
-| Pattern detection | Custom rule engine layered on top of Presidio for `redact-ai` rule IDs |
+| Detection | Project-owned regex/dictionary detectors that map directly to the `redact-ai` rule IDs in [`REDACTION_RULES_v0.1.md`](./REDACTION_RULES_v0.1.md) |
 | Redaction / rendering | Pillow for masking; configurable styles (block, blur, pixelate, label) |
 | **v0.1 surface** | **FastAPI (or equivalent minimal framework) + a single static drag-and-drop HTML page**, served on `127.0.0.1` (see ADR-007) |
 | CLI (v0.2) | Typer (Click under the hood) for ergonomic CLI |
@@ -76,7 +100,7 @@ once the per-OS code is justified.
 ### A.2 Pros
 
 - **Fastest path to a working MVP.** Every pipeline stage has a mature, well-documented Python library.
-- **Best ML/NLP ecosystem** for future detector upgrades (spaCy, Hugging Face, transformers).
+- **Strong ML ecosystem available** *if and when* future detectors require it (spaCy, Hugging Face, transformers) — deliberately **not** pulled into the v0.1 baseline.
 - **Excellent OCR options** (Tesseract, PaddleOCR, EasyOCR) — all installable with one command.
 - **Strong dev experience**: REPL-driven iteration on detection rules, rich notebook tooling.
 - **Modular by default** — Python's import model maps cleanly to the pipeline contracts in `ARCHITECTURE_v0.1.md`.
@@ -93,8 +117,8 @@ once the per-OS code is justified.
 ### A.4 Best Fit
 
 - **Stage:** MVP (v0.1) and early v0.2.
-- **When to choose:** You want to validate detection accuracy and UX quickly, and your primary distribution target is power users (CLI / pip install).
-- **When to avoid:** When the first surface you ship is a browser extension or sandboxed mobile app.
+- **When to choose:** You want to validate detection accuracy and UX quickly, and your primary distribution target is anyone with a browser — install is `pipx install redact-ai`, run is a single command that opens a localhost page.
+- **When to avoid:** When the first surface you ship is a browser extension or sandboxed mobile app. (A future browser extension is a v0.4 concern; see [`ROADMAP.md`](./ROADMAP.md).)
 
 ---
 
@@ -225,8 +249,70 @@ once the per-OS code is justified.
 | Privacy posture | High | High | **Highest** | High |
 | Browser-extension path | Hard | **Easy** | Medium (via WASM) | Medium |
 | Distribution | Medium | High | **Highest** | Medium |
+| Install footprint | Medium | Low | **Lowest** | Higher |
 | Contributor accessibility | **High** | High | Low | Medium |
 | Maintenance overhead | Low | Low | Medium | **Higher** |
+
+---
+
+## Operational Considerations
+
+These items are not stack-defining trade-offs — they are the
+operational reality of shipping the recommended path. Captured here
+so that an implementing engineer (or AI coding agent) does not have
+to rediscover them.
+
+### Dependency footprint
+
+The v0.1 baseline is intentionally lean: **Tesseract + Pillow +
+FastAPI + project-owned regex/dictionary detectors**. The only
+heavyweight optional dependency on the v0.1 horizon is **PaddleOCR**,
+which ships the `paddlepaddle` runtime plus multilingual models
+(~500 MB–1 GB). PaddleOCR is gated as an opt-in
+`redact-ai[ocr-paddle]` extras install if Tesseract recall on the
+golden corpus proves insufficient.
+
+NLP-based detectors (spaCy, transformer NER, hosted analyzer
+frameworks) are **not** part of the v0.1 stack. They are
+re-evaluated only when project-owned regex/dictionary detectors miss
+too much against the golden corpus.
+
+### Licensing
+
+| Dependency | License |
+| --- | --- |
+| Tesseract | Apache 2.0 |
+| PaddleOCR (optional) | Apache 2.0 |
+| Pillow | HPND |
+| OpenCV | Apache 2.0 |
+| FastAPI / Starlette | MIT |
+| Pydantic | MIT |
+| Typer (v0.2 CLI) | MIT |
+
+All compatible with the project's MIT licence. Recorded here for
+due-diligence purposes.
+
+### Install footprint (Option A baseline)
+
+- `pipx install redact-ai` ≈ **50–80 MB** with Tesseract + Pillow
+  + FastAPI + project detectors.
+- `pipx install 'redact-ai[ocr-paddle]'` ≈ **+0.5–1 GB** when the
+  PaddleOCR extra is enabled.
+- The default install carries **no NLP/transformer dependencies**.
+
+### CI matrix
+
+The supported platform matrix is **macOS, Linux, and Windows**
+(NFR-7.x). Per-platform notes:
+
+- **Tesseract** install differs per platform (Homebrew / apt /
+  chocolatey); document the install steps in `CONTRIBUTING.md`.
+- **Pillow** ships pre-built wheels on all three platforms.
+- **FastAPI / uvicorn** are pure-Python and portable.
+- The **localhost web UI** must be smoke-tested per platform — first
+  run can trigger an OS firewall prompt even on the loopback
+  interface, and `Origin` / `Host` validation can behave differently
+  across browsers.
 
 ---
 
@@ -236,7 +322,7 @@ once the per-OS code is justified.
 
 **Reasoning**
 
-1. **Velocity.** Python lets us ship a credible image-redaction pipeline in days, not weeks. Tesseract + Presidio + Pillow gives us a working baseline with minimal custom code.
+1. **Velocity.** Python lets us ship a credible image-redaction pipeline in days, not weeks. Tesseract + Pillow + project-owned regex/dictionary detectors give us a working baseline with minimal custom code.
 2. **Detection quality.** The richest OCR and PII tooling lives in Python. Accuracy is the riskiest variable for `redact-ai`; we want the strongest libraries on day one.
 3. **Right surface for non-CLI users.** A FastAPI server bound to `127.0.0.1` plus a single drag-and-drop page gives every user a familiar canvas (their browser) without compromising local-first (ADR-002 / ADR-007).
 4. **Modularity.** The architecture's pipeline boundaries map cleanly to Python modules and adapter contracts, making future swaps (PaddleOCR, custom detectors) low-cost.
@@ -254,6 +340,28 @@ We accept the trade-off that the **browser extension** is not a v0.1 surface and
 3. **Modularity preserved.** The IPC boundary between UI and pipeline is a feature, not a tax — it lets us harden the pipeline (sandbox, signed builds) independently of the UI.
 4. **Clear migration path.** Heavy detectors can later be ported to **Rust (Option C)** behind the same pipeline contracts if performance or privacy demands it, without touching the UI.
 
+### Migration: v0.1 (A) → v1.0+ (D)
+
+Today's v0.1 surface is already a stepping stone toward Option D —
+not a throwaway. The local web UI is a Python process that serves a
+single HTML page over `127.0.0.1`. The v1.0+ desktop app does the
+same thing inside a Tauri or Electron shell:
+
+- The **HTML page** becomes the desktop shell's renderer with no
+  rewrite — same drag-drop, same review screen.
+- The **FastAPI handlers** (`POST /redact`, `GET /policies`,
+  `GET /healthz`) become the JSON-RPC handlers on the IPC boundary
+  between the shell and the embedded Python pipeline.
+- The **Python pipeline itself is unchanged.** Ingestor, OCR,
+  Detector, Redactor, and Report keep their contracts; only the
+  surface in front of them swaps.
+
+This means v0.1 quality work on policies, detectors, and the OCR
+adapter is *directly* re-used in v1.0+ — not rewritten. The same
+property holds for a future browser-extension surface (v0.4) that
+talks to a local helper service rather than reimplementing the
+pipeline.
+
 ### When to revisit
 
 | Trigger | Likely move |
@@ -264,9 +372,28 @@ We accept the trade-off that the **browser extension** is not a v0.1 surface and
 
 ---
 
+## Risk Register (Recommended Path)
+
+Risks specific to **shipping Option A as the v0.1 surface**, with
+their mitigations and the conditions that should prompt a re-think.
+This register is scoped to stack-and-distribution risk; it
+**complements**, rather than replaces, the threat-model risk table
+in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
+
+| Risk | Mitigation | Trigger to revisit |
+| --- | --- | --- |
+| OCR accuracy varies by image quality | Golden test corpus per [`TEST_CASES_v0.1.md`](./TEST_CASES_v0.1.md); per-finding confidence in the manifest | Recall on baseline corpus drops below 95% |
+| Python packaging on Windows is fragile | CI matrix tests wheels per platform; documented workarounds; bundle Tesseract install hints in `CONTRIBUTING.md` | Three or more user-reported install failures in a release window |
+| Heavy optional OCR deps inflate supply-chain risk | Pin + hash; ship Tesseract-only by default; PaddleOCR as an opt-in `[ocr-paddle]` extras install | Adoption of the opt-in OCR engine blocked by install size |
+| Localhost server mistaken for cloud SaaS | README banner + UI footer ("Everything runs on your machine"); no telemetry endpoints in the binary | User confusion in support / community channels |
+| Browser drag-drop UX inconsistent across browsers | Ship multipart upload first; drag-drop on top; clipboard paste later (v0.2) | Drag-drop reliability issues block adoption |
+| FastAPI startup overhead noticeable on cold launch | Lazy-load OCR + detectors after the server is bound | Cold-start latency exceeds the 3 s end-to-end budget (NFR-1.1) |
+
+---
+
 ## Open Questions
 
 - Which OCR engine becomes the default for v0.1 — Tesseract (broadest support) or PaddleOCR (better accuracy)? *(TODO)*
 - Do we lock to a single Python version or support a window? *(TODO)*
-- Should the CLI ship with a default "lenient" policy or only "strict"? *(TODO)*
+- Should the v0.1 default policy be "strict" or "lenient"? *(TODO)*
 - When does it make sense to add a thin Rust performance core behind the Python facade? *(TODO)*
