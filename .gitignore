@@ -1,0 +1,96 @@
+# ============================================================================
+# redact-ai — .gitignore
+# ----------------------------------------------------------------------------
+# This is a documentation-first repository. Implementation language and
+# tooling are not yet decided, so this file covers common ecosystems plus
+# editor, OS, and security artifacts.
+# ============================================================================
+
+# ---------- Operating System ----------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- Editors / IDEs ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# ---------- Logs & Temporary Files ----------
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.cache
+
+# ---------- Environment & Secrets ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# ---------- Build Outputs ----------
+dist/
+build/
+out/
+target/
+bin/
+obj/
+
+# ---------- Python (placeholder for future) ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ---------- Node.js (placeholder for future) ----------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp.*
+
+# ---------- JVM (placeholder for future) ----------
+*.class
+*.jar
+*.war
+
+# ---------- Go (placeholder for future) ----------
+vendor/
+
+# ---------- Rust (placeholder for future) ----------
+Cargo.lock
+**/target/
+
+# ---------- Coverage & Test Artifacts ----------
+coverage/
+.coverage
+.nyc_output/
+htmlcov/
+
+# ---------- Sensitive Test Fixtures ----------
+# Never commit real user data. Place only synthetic samples in examples/.
+examples/sample_inputs/private/
+examples/expected_outputs/private/
+*.private.*
