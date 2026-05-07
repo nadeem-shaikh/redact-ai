@@ -7,7 +7,8 @@
 
 ## v0.1 — Foundation (current)
 
-**Theme:** Documentation-first scaffolding.
+**Theme:** Documentation-first scaffolding + image MVP behind a
+local web UI.
 
 - [x] Repository structure
 - [x] Product vision and MVP scope
@@ -15,26 +16,32 @@
 - [x] Functional and non-functional requirements
 - [x] Baseline redaction rule set
 - [x] OCR pipeline contract
-- [x] API specification
-- [x] Security and threat model
+- [x] API specification (incl. local HTTP surface)
+- [x] Security and threat model (incl. localhost server hardening)
 - [x] Test-case catalogue
 - [x] UX flow walkthrough
 - [x] Contribution guide and ADR template
-
----
-
-## v0.2 — Image MVP
-
-**Theme:** First working release for screenshots and images.
-
 - [ ] Reference implementation of the OCR adapter contract
 - [ ] Baseline detectors for `IDENTITY`, `CONTACT`, `FINANCIAL`,
       `CREDENTIALS`
 - [ ] Default policy and "strict" policy
 - [ ] Solid-block redactor
-- [ ] CLI entry point
+- [ ] **Local web UI** (FastAPI server bound to `127.0.0.1` + drag-drop
+      static page) — *primary v0.1 surface, see ADR-007*
 - [ ] Manifest / report generator
 - [ ] End-to-end tests covering `TC-001` through `TC-010`
+
+---
+
+## v0.2 — Power-user surfaces
+
+**Theme:** Reach the user where the screenshot already is.
+
+- [ ] CLI entry point (`redact-ai run --input ...`)
+- [ ] Clipboard ingestion (per-OS adapters: `Pillow.ImageGrab` on
+      Win/macOS, `wl-paste` / `xclip` on Linux)
+- [ ] Folder watcher (`~/Screenshots`-style auto-redaction)
+- [ ] Additional redaction styles (blur, pixelate, label)
 
 ---
 

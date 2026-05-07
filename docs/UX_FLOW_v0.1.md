@@ -35,14 +35,19 @@
 
 - User has an image: a screenshot, a phone photo, or a scanned page.
 - Entry points:
-  - CLI: `redact-ai run --input path/to/image.png`
-  - Desktop app: drag-and-drop or file picker
-  - OS share-sheet: future *(see ROADMAP.md)*
+  - **Local web UI (primary v0.1 surface).** The user runs
+    `redact-ai`, which starts a local server bound to `127.0.0.1`
+    and opens a single page in the user's default browser. The user
+    drops the image onto the page (or uses the file picker).
+  - *(v0.2)* CLI: `redact-ai run --input path/to/image.png` — for
+    power users and scripted flows.
+  - *(later)* OS share-sheet integration *(see ROADMAP.md)*.
 
 **Acceptance:**
 
 - The system confirms the file format is supported.
 - An unsupported format produces a clear error with a suggested fix.
+- The local web UI is reachable only from the loopback interface.
 
 ### Step 2 — Choose Policy
 
@@ -128,7 +133,11 @@
 
 ## 6. Open Questions
 
-- What is the v0.1 entry point — CLI, desktop, or both? *(TODO)*
 - Should the review step include an editable preview to add/remove
   redactions manually? *(TODO)*
 - How do we onboard users to non-default policies? *(TODO)*
+
+> Resolved: "What is the v0.1 entry point — CLI, desktop, or both?"
+> — the v0.1 surface is a **local web UI**; the CLI is a v0.2
+> power-user surface. See ADR-007 in
+> [`DECISIONS.md`](./DECISIONS.md).

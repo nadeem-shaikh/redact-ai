@@ -9,7 +9,7 @@
 
 | ID | Requirement | Target |
 | --- | --- | --- |
-| NFR-1.1 | End-to-end latency for a 1080p screenshot | ≤ 3 seconds on a modern laptop |
+| NFR-1.1 | End-to-end latency for a 1080p screenshot (includes localhost HTTP roundtrip from the v0.1 web UI) | ≤ 3 seconds on a modern laptop |
 | NFR-1.2 | Memory ceiling for a typical run | ≤ 1 GB peak |
 | NFR-1.3 | Cold-start time | ≤ 2 seconds |
 
@@ -31,7 +31,7 @@
 
 | ID | Requirement |
 | --- | --- |
-| NFR-3.1 | The default pipeline **MUST** run entirely on-device. |
+| NFR-3.1 | The default pipeline **MUST** run entirely on-device. The localhost loopback interface (`127.0.0.1`) used by the v0.1 web UI is considered on-device. |
 | NFR-3.2 | The system **MUST NOT** transmit user content to any network endpoint without explicit, per-invocation user consent. |
 | NFR-3.3 | The system **MUST NOT** persist user content beyond the lifetime of a single redaction operation, except for explicitly chosen output paths. |
 
@@ -75,6 +75,7 @@ See [`SECURITY_v0.1.md`](./SECURITY_v0.1.md) for threat model details.
 | --- | --- |
 | NFR-7.1 | The system **SHOULD** target macOS, Linux, and Windows. |
 | NFR-7.2 | The system **SHOULD NOT** depend on platform-exclusive APIs in the core. |
+| NFR-7.3 | The v0.1 surface **MUST** run as a local web UI bound to `127.0.0.1` on all supported platforms. |
 
 ---
 

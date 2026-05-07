@@ -74,6 +74,11 @@ their existing tools and habits.
 - Produce a **redacted image** with sensitive regions visually masked.
 - Provide a **detection report** summarising what was redacted and why.
 - Operate **fully offline** for the default detector set.
+- Ship a **local web UI** as the primary v0.1 entry surface — a
+  Python server bound to `127.0.0.1` plus a single drag-and-drop page
+  served from the same process. *(See ADR-007 in
+  [`DECISIONS.md`](./DECISIONS.md).)* The CLI is a power-user surface
+  in v0.2; see [`ROADMAP.md`](./ROADMAP.md).
 
 ### Out of Scope (for v0.1)
 
@@ -115,6 +120,9 @@ See [`ROADMAP.md`](./ROADMAP.md) for detail.
 
 ## 9. Open Questions
 
-- Should the MVP ship as a CLI, a desktop app, or both? *(TODO)*
 - What is the minimum acceptable accuracy bar before public release? *(TODO)*
 - How do we communicate uncertainty to the user when a detection is low-confidence? *(TODO)*
+
+> Resolved: "Should the MVP ship as a CLI, a desktop app, or both?" —
+> the v0.1 surface is a **local web UI**, with the CLI deferred to
+> v0.2. See ADR-007 in [`DECISIONS.md`](./DECISIONS.md).

@@ -168,3 +168,20 @@ Help select a tech stack that:
 ## Output Format
 Return ONLY the full Markdown file content for:
 `/docs/TECH_STACK_OPTIONS_v0.1.md`
+
+---
+
+## Prompt 3 — Pivot v0.1 surface
+
+I am still thinking that focussing on a PDF redaction on a web app will be better approach for already MVP
+
+**Resolved scope** (after clarification in chat):
+
+- App type: **local web UI** — Python server bound to `127.0.0.1` +
+  a single drag-and-drop page in the user's existing browser.
+- Input scope: **images stay primary** for v0.1; PDFs remain v0.3.
+  ADR-001 not revisited.
+- Privacy stance: **local-first preserved**. ADR-002 not revisited.
+
+The decision is recorded as ADR-007 in
+[`docs/DECISIONS.md`](./docs/DECISIONS.md).

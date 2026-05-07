@@ -31,6 +31,12 @@ Sensitive content **never** crosses the device boundary. The only
 artefact that may leave the device is the **redacted** output the user
 explicitly chooses to share.
 
+> **Note on the v0.1 surface.** The local web UI introduced by
+> ADR-007 is reached over the loopback interface (`127.0.0.1`). The
+> loopback hop is *inside* the trusted device zone — packets never
+> traverse a network interface. Server hardening for this surface is
+> in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md) §4a.
+
 ---
 
 ## 2. Stage-by-Stage Flow
