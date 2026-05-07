@@ -37,6 +37,26 @@
 
 ## 3. Components
 
+### 3.0 Surfaces (v0.1)
+
+`redact-ai` exposes one user-visible surface in v0.1: a **local web
+UI** — a Python server bound to `127.0.0.1` plus a single static
+drag-and-drop page served from the same process. The surface sits in
+front of the pipeline below; the pipeline itself is unchanged.
+
+```text
+Browser (localhost:<port>)
+        │  drag-drop image
+        ▼
+HTTP server (127.0.0.1)  ──▶  Ingestor → OCR → Detector → Redactor → Report
+        ▲                                                             │
+        └─────────────── redacted image + manifest ◀───────────────────┘
+```
+
+The CLI is a v0.2 power-user surface (see
+[`ROADMAP.md`](./ROADMAP.md)). Both surfaces call the same pipeline
+via the contracts in [`API_SPEC_v0.1.md`](./API_SPEC_v0.1.md).
+
 ### 3.1 Ingestor
 
 - Accepts an input artifact: image file, screenshot, or document page.

@@ -99,7 +99,23 @@ Conventions:
 
 ---
 
-## 9. Open Questions
+## FR-9. v0.1 Surface — Local Web UI
+
+| ID | Requirement |
+| --- | --- |
+| FR-9.1 | The v0.1 entry surface **MUST** be a local web UI: a Python server bound to `127.0.0.1` plus a single static drag-and-drop page served from the same process. |
+| FR-9.2 | The server **MUST NOT** bind to any non-loopback interface (`0.0.0.0`, LAN IPs, or otherwise). |
+| FR-9.3 | The UI **MUST** accept image uploads via multipart form (`POST /redact`). |
+| FR-9.4 | The redacted image **MUST** be returned in the same response cycle as the upload. |
+| FR-9.5 | The redaction manifest **MUST** be retrievable from a separate endpoint or returned alongside the image (see [`API_SPEC_v0.1.md`](./API_SPEC_v0.1.md)). |
+| FR-9.6 | The server **MUST** reject requests whose `Origin` or `Host` is not loopback. |
+| FR-9.7 | The server **MUST NOT** persist user content beyond the lifetime of a single request, except for explicitly user-chosen output paths (FR-7.x). |
+
+See ADR-007 in [`DECISIONS.md`](./DECISIONS.md).
+
+---
+
+## 10. Open Questions
 
 - Should the system warn the user when confidence on critical entities is low? *(TODO)*
 - How should the system express "I might have missed something"? *(TODO)*

@@ -64,6 +64,34 @@
 | Compromised dependency exfiltrates data | Reproducible builds, dependency pinning, minimal supply chain |
 | Output image still contains pixels of sensitive content | Redactor enforces opaque overlay; pixel-level test in CI |
 | Manifest leaks via "verbose report" mode | Verbose mode is opt-in per invocation, never default |
+| Local web UI exposed beyond loopback | Bind `127.0.0.1` only; reject non-loopback `Origin`/`Host`; CSRF token on uploads (see §4a) |
+
+---
+
+## 4a. Localhost Server Hardening (v0.1 web UI)
+
+The v0.1 surface is a local web UI (see ADR-007 in
+[`DECISIONS.md`](./DECISIONS.md)). To keep it inside the trust
+boundary defined in §2.3, the server **MUST**:
+
+- **Bind to `127.0.0.1` only.** Never `0.0.0.0`, never an external
+  interface. No configuration option exposes a non-loopback bind.
+- **Reject non-loopback origins.** Requests whose `Origin` or `Host`
+  header is not loopback are dropped with a typed error.
+- **Enforce same-origin.** Cross-origin requests are rejected; CORS
+  is *not* enabled.
+- **Carry a CSRF token** on the upload form. The token is generated
+  per session and validated on `POST /redact`.
+- **Hold no persistent state.** Sessions live only for the lifetime
+  of the running process.
+- **Use an ephemeral port** by default; the chosen port is opened in
+  the user's browser and not advertised externally.
+- **Avoid auth.** The server is single-user and single-machine;
+  introducing a credential creates more risk than it removes.
+
+These constraints are enforced at the framework layer and reflected
+in the requirements `FR-9.1`–`FR-9.7` in
+[`FUNCTIONAL_REQUIREMENTS_v0.1.md`](./FUNCTIONAL_REQUIREMENTS_v0.1.md).
 
 ---
 

@@ -50,9 +50,28 @@ confidence.
 | PII detection | Microsoft Presidio (analyzer + recognizers) augmented with project-owned regex/dictionary detectors |
 | Pattern detection | Custom rule engine layered on top of Presidio for `redact-ai` rule IDs |
 | Redaction / rendering | Pillow for masking; configurable styles (block, blur, pixelate, label) |
-| CLI | Typer (Click under the hood) for ergonomic CLI |
+| **v0.1 surface** | **FastAPI (or equivalent minimal framework) + a single static drag-and-drop HTML page**, served on `127.0.0.1` (see ADR-007) |
+| CLI (v0.2) | Typer (Click under the hood) for ergonomic CLI |
 | Configuration | YAML/TOML policy files validated with Pydantic |
 | Testing | pytest, hypothesis, image diff tooling |
+
+### A.1.1 Ingestion in Python (how the user actually hands over a screenshot)
+
+A pure-Python MVP has four realistic ways to receive an image. Each
+maps to a distinct UX moment in
+[`UX_FLOW_v0.1.md`](./UX_FLOW_v0.1.md), Step 1.
+
+| Entry point | How Python receives the bytes | UX feel | Cross-platform cost |
+| --- | --- | --- | --- |
+| **Local web UI** (FastAPI + drag-drop page) | Browser POSTs multipart to `127.0.0.1` | "Drag image, get redacted image back" — feels native everywhere | Easy; one extra process |
+| Clipboard read | `Pillow.ImageGrab` (Win/macOS) or `wl-paste` / `xclip` shell-out (Linux) | Closest to the real moment — paste from screenshot tool | Cross-platform clipboard-image is uneven |
+| Folder watcher | `watchdog` on `~/Screenshots` | Zero-touch but indirect | Easy |
+| CLI + `--input <path>` | User passes a path | Power-user only | Trivial |
+
+**v0.1 chooses the local web UI** as the primary surface (ADR-007 in
+[`DECISIONS.md`](./DECISIONS.md)); the CLI ships as a v0.2 power-user
+surface. Clipboard ingestion and folder watching are deferred to v0.2
+once the per-OS code is justified.
 
 ### A.2 Pros
 
@@ -213,17 +232,18 @@ confidence.
 
 ## Final Recommendation
 
-### MVP (v0.1) — **Option A: Python local-first CLI / library**
+### MVP (v0.1) — **Option A: Python local-first, served via a local web UI**
 
 **Reasoning**
 
 1. **Velocity.** Python lets us ship a credible image-redaction pipeline in days, not weeks. Tesseract + Presidio + Pillow gives us a working baseline with minimal custom code.
 2. **Detection quality.** The richest OCR and PII tooling lives in Python. Accuracy is the riskiest variable for `redact-ai`; we want the strongest libraries on day one.
-3. **Modularity.** The architecture's pipeline boundaries map cleanly to Python modules and adapter contracts, making future swaps (PaddleOCR, custom detectors) low-cost.
-4. **Local-first by default.** Every component runs on-device; no network calls in the default policy.
-5. **Contributor friendliness.** Python is the most common contributor language for ML-adjacent OSS projects, lowering the barrier to participation and making the codebase highly approachable to AI coding agents.
+3. **Right surface for non-CLI users.** A FastAPI server bound to `127.0.0.1` plus a single drag-and-drop page gives every user a familiar canvas (their browser) without compromising local-first (ADR-002 / ADR-007).
+4. **Modularity.** The architecture's pipeline boundaries map cleanly to Python modules and adapter contracts, making future swaps (PaddleOCR, custom detectors) low-cost.
+5. **Local-first preserved.** The localhost loopback is on-device; no network calls in the default policy.
+6. **Contributor friendliness.** Python is the most common contributor language for ML-adjacent OSS projects, lowering the barrier to participation and making the codebase highly approachable to AI coding agents.
 
-We accept the trade-off that the **browser extension** is not a v0.1 surface. The CLI/library is the right first surface for power users and for early validation of detection accuracy.
+We accept the trade-off that the **browser extension** is not a v0.1 surface and the **CLI** ships as a v0.2 power-user tool, not a v0.1 primary entry point.
 
 ### Scaling (v1.0+) — **Option D: Python core + TypeScript / Electron shell**
 

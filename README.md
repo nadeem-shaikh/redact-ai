@@ -8,7 +8,9 @@ with AI systems like ChatGPT, Claude, Gemini, or any other LLM.
 
 > Status: **Documentation phase (v0.1).** No implementation code yet — this
 > repository establishes product direction, architecture, and contributor
-> guidelines first.
+> guidelines first. The v0.1 user surface will be a **local web UI**
+> (Python server bound to `127.0.0.1` + a drag-and-drop page); see
+> [ADR-007](./docs/DECISIONS.md). The CLI is a v0.2 power-user surface.
 
 ---
 

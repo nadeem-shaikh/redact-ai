@@ -117,4 +117,37 @@ Entry template:
 
 ---
 
+## ADR-007 — v0.1 surface is a local web UI
+
+- **Date:** 2026-05-07
+- **Status:** Accepted
+- **Context:** [`UX_FLOW_v0.1.md`](./UX_FLOW_v0.1.md) and
+  [`PRODUCT_v0.1.md`](./PRODUCT_v0.1.md) both left the v0.1 entry
+  point open ("CLI, desktop, or both?"). Pure-Python ingestion of
+  screenshots is OS-fragmented across clipboard, drag-drop, and
+  share-sheet integrations, and a CLI alone excludes non-power-users
+  from the most common moment ("I just took a screenshot — clean it
+  before I paste it into ChatGPT"). A local web UI gives every user
+  a familiar drag-and-drop canvas (the browser they already have
+  open) without compromising the local-first principle.
+- **Decision:** The v0.1 user-visible surface is a **local web UI** —
+  a Python server bound to `127.0.0.1` plus a single static
+  drag-and-drop HTML page served from the same process. The CLI is
+  retained for power users and ships as a v0.2 surface (see
+  [`ROADMAP.md`](./ROADMAP.md)).
+- **Consequences:**
+  - Adds a small, well-bounded HTTP attack surface that lives
+    entirely on the loopback interface; hardening is captured in
+    [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
+  - HTTP roundtrip is included in the end-to-end latency budget
+    (see [`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md`](./NON_FUNCTIONAL_REQUIREMENTS_v0.1.md), NFR-1.1).
+  - FastAPI (or an equivalent minimal Python web framework) joins
+    the recommended MVP stack in
+    [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md).
+  - **Does not** revisit ADR-001 (image-first remains the v0.1 input
+    modality) or ADR-002 (the localhost loopback is on-device; no
+    user content crosses the network boundary).
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.

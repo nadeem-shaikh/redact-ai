@@ -11,8 +11,8 @@
 | Surface | Audience | Status |
 | --- | --- | --- |
 | Library API | Embedders | v0.1 target |
-| CLI | End users | v0.1 target |
-| Local HTTP API | Power users / integrators | v0.2 candidate |
+| Local HTTP API + Web UI | End users (primary surface) | **v0.1 target** |
+| CLI | Power users | v0.2 target |
 
 ---
 
@@ -114,7 +114,37 @@ Warning
 
 ---
 
-## 4. CLI Sketch
+## 4. Local HTTP API (v0.1 surface)
+
+The v0.1 surface is a Python server bound to `127.0.0.1` plus a
+single static drag-and-drop page served from the same process. The
+HTTP API is local-only; security constraints are in
+[`SECURITY_v0.1.md`](./SECURITY_v0.1.md) §4a.
+
+### 4.1 Endpoints
+
+| Method & Path | Purpose | Request | Response |
+| --- | --- | --- | --- |
+| `POST /redact` | Redact an uploaded image | `multipart/form-data` with `image`, optional `policy`, optional `style`, plus a CSRF token | Redacted image bytes (`image/<input-format>`) with `X-Redaction-Manifest-Url` header pointing at the manifest, **or** a JSON envelope `{ image: base64, manifest: Manifest }` when the client requests `Accept: application/json` |
+| `GET /policies` | List built-in and user-loaded policies | — | JSON array of `{ id, version, description }` |
+| `GET /healthz` | Liveness check for the local server | — | `200 OK` with `{ status: "ok", version }` |
+
+### 4.2 Server Constraints
+
+- **Bind address:** `127.0.0.1` only.
+- **Origin / Host:** non-loopback values are rejected.
+- **CSRF:** the upload page issues a per-session token; `POST /redact`
+  validates it.
+- **No auth:** the server is single-user, single-machine.
+- **No persistence:** in-memory only; no request bodies are written
+  to disk except for an explicit user-chosen output path.
+
+These map to `FR-9.1`–`FR-9.7` in
+[`FUNCTIONAL_REQUIREMENTS_v0.1.md`](./FUNCTIONAL_REQUIREMENTS_v0.1.md).
+
+---
+
+## 5. CLI Sketch (v0.2)
 
 ```text
 $ redact-ai run \
@@ -136,7 +166,7 @@ $ redact-ai run \
 
 ---
 
-## 5. Error Model
+## 6. Error Model
 
 All errors are typed and carry a stable `code`:
 
@@ -154,7 +184,7 @@ sensitive content, no output image is produced.
 
 ---
 
-## 6. Versioning
+## 7. Versioning
 
 - The contract follows **semver**.
 - Breaking changes increment the major version.
@@ -162,7 +192,7 @@ sensitive content, no output image is produced.
 
 ---
 
-## 7. Open Questions
+## 8. Open Questions
 
 - Should the manifest be signed by default? *(TODO)*
 - Do we need a streaming variant for very large inputs? *(TODO)*
