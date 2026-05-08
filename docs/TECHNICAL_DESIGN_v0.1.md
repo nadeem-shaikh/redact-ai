@@ -854,7 +854,10 @@ otherwise.
 
 ### 13.2 Origin / Host validation (middleware)
 
-Allowlist:
+The middleware maintains **two** allowlists — one for the `Origin`
+header (full origins, with scheme) and one for the `Host` fallback
+(host only, no scheme). They must be kept in sync; the only
+intended difference between the two is the `http://` prefix.
 
 ```python
 ALLOWED_ORIGINS = {
@@ -862,12 +865,32 @@ ALLOWED_ORIGINS = {
     "http://localhost",
     "http://[::1]",
 }
+
+ALLOWED_HOSTS = {
+    "127.0.0.1",
+    "localhost",
+    "[::1]",
+}
 ```
 
-The middleware extracts `Origin` (preferred) or falls back to
-`Host`, normalises (strip trailing slash, lowercase host, strip
-port for the comparison), and rejects anything outside the
-allowlist with HTTP 403 + `ErrorEnvelope { code: "E_POLICY",
+Two allowlists are required because an `Origin` header carries
+`scheme://host[:port]` while a `Host` header carries only
+`host[:port]` — comparing one against the other after a single
+"strip port" normalisation can never match.
+
+**Decision logic:**
+
+1. If the request has an `Origin` header, normalise it (lowercase
+   host, strip a default port if present, strip a trailing slash)
+   and require membership in `ALLOWED_ORIGINS`.
+2. If `Origin` is absent — notably on top-level browser navigations
+   to `GET /`, where most browsers omit `Origin` on same-origin
+   GETs — normalise the `Host` header (lowercase, strip the
+   trailing port; for IPv6, the bracketed form `[::1]` is
+   preserved) and require membership in `ALLOWED_HOSTS`.
+3. If neither header is present, reject.
+
+Any failure returns HTTP 403 + `ErrorEnvelope { code: "E_POLICY",
 stage: "server" }`.
 
 CORS is **not** enabled. Cross-origin requests are dropped by the
