@@ -225,11 +225,18 @@ schema's `detectors` allow-list (NFR-6.3).
 its `detect()` call is **non-fatal** (FR-8.2): the registry catches
 the exception, appends a `Warning(source="detector",
 code="detector_failed", message=...)` to the manifest, and
-continues with the remaining detectors. `DetectorError`
-(`E_DETECTOR`) is raised only when the **detection orchestrator
-itself** cannot proceed (e.g., a registered `rule_id` cannot be
-imported, the policy references unknown rules, or every detector
-in the active set raised).
+continues with the remaining detectors. The two failure modes are
+distinct:
+
+- **`PolicyError` (`E_POLICY`)** — raised by the policy loader and
+  the orchestrator's startup check when the policy references a
+  `rule_id` that is not in the registry, or otherwise fails
+  validation. This is a **client-side configuration error**.
+- **`DetectorError` (`E_DETECTOR`)** — raised only when the
+  orchestrator itself cannot proceed *at runtime* despite a
+  validated policy (e.g., a registered detector class fails to
+  import at first use, or every detector in the active set
+  raised). This is an **upstream/runtime failure**.
 
 ### 5.5 `redact_ai.redact`
 
