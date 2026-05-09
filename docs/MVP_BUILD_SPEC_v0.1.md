@@ -13,6 +13,13 @@
 > canonical form, redactor algorithm — resolves there. When this
 > spec and the TDD disagree, the TDD wins.
 >
+> **Depends on the TDD review PR.** This spec cites several TDD
+> sections (`§5.8` `/readyz`, `§9.2` soft OCR-stability check,
+> `§10.3` `prefetch-models`) that ship in the TDD review PR
+> (originally #7, replaced by #9 due to a build-environment
+> push limitation). Once that PR merges into `dev`, every cite
+> resolves; this file is intended to merge **after** it.
+>
 > **Source of behavioural truth.** The functional and non-functional
 > requirements ([`FUNCTIONAL_REQUIREMENTS_v0.1.md`](./FUNCTIONAL_REQUIREMENTS_v0.1.md),
 > [`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md`](./NON_FUNCTIONAL_REQUIREMENTS_v0.1.md)),
@@ -187,11 +194,15 @@ Goal: the system can identify sensitive content in a `Document`.
 **Acceptance**
 
 - Per-rule unit tests for every CO / ID / FI / CR / HE / LO rule
-  on synthetic strings, including positive cases at every
-  confidence band and at least one negative case per rule.
+  on synthetic strings, including positive cases **at every
+  confidence band that rule is documented to emit** in `TECHNICAL_DESIGN_v0.1.md`
+  §7.1 (some rules emit only `high`, e.g., FI-002, LO-001 —
+  don't try to provoke a `low` from a high-only rule), plus at
+  least one negative case per rule.
 - A combined detector test on the TC-001 fixture surfaces the
-  expected three findings (one IDENTITY, one CONTACT, one
-  FINANCIAL).
+  expected findings as published in `TEST_CASES_v0.1.md` —
+  **IDENTITY: 1, FINANCIAL: 2** for TC-001 (the bank statement),
+  no CONTACT findings on this fixture.
 - An overlapping-finding test produces a single collapsed
   `Finding` whose `meta.also_matched` lists the other rule IDs
   in lexicographic order.
@@ -303,8 +314,11 @@ supported platform.
 - Latency, memory, and cold-start benchmarks pass on the matrix.
 - `ruff check` and `mypy redact_ai` are green on every matrix
   cell.
-- The regenerator-stability guard from §5 below succeeds on a
-  clean checkout of the matrix runners.
+- *(Supplementary, not a §1 release gate.)* The
+  regenerator-stability guard from §5 below succeeds on a clean
+  checkout of the matrix runners. Failure here flags a real
+  regression but does not by itself block a release that
+  otherwise meets every line of TDD §16.
 
 ---
 
@@ -340,7 +354,9 @@ environment must produce byte-identical outputs.
 Tests do not regenerate at test time; they read the committed
 files. A regenerator-stability guard runs the generator on a
 clean checkout and asserts the working tree under `tests/assets/`
-has no diff. A regression in determinism is a red CI cell.
+has no diff. A regression in determinism is a red CI cell — but
+this guard is **supplementary verification**, not a §1 release
+gate; the canonical Definition of Done in §1 remains TDD §16.
 
 **Per-TC files.**
 
@@ -368,8 +384,8 @@ exact YAML is mechanical and lands as part of M6.
   2. The matrix-selected Python is set up.
   3. Tesseract is installed via the platform's standard package
      manager. Exact invocations live in
-     [`CONTRIBUTING.md`](./CONTRIBUTING.md); the workflow mirrors
-     them.
+     [`CONTRIBUTING.md`](./CONTRIBUTING.md) §10 (per-platform
+     table); the workflow mirrors them.
   4. Editable install of the project with the development and
      opt-in OCR extras enabled.
   5. The `redact-ai prefetch-models` subcommand is run to warm
@@ -403,8 +419,14 @@ PR merge.
   user has explicitly chosen.
 - Do not commit real PII anywhere — code, tests, comments,
   policies, generator inputs, README examples, commit messages.
-- Do not depend on a network at test time. The default policy
-  has zero outbound network calls; tests must respect that.
+- Do not depend on a network **during the pytest run**. The
+  default policy has zero outbound network calls and the test
+  suite must respect that. The CI `prefetch-models` step in §6
+  runs **before** pytest as a setup phase that warms the local
+  weight cache; it is not part of the test run, and a fresh
+  environment without network must still pass `pytest -q` once
+  the cache is populated by any means (CI artifact, vendored
+  archive, or earlier prefetch).
 - Do not silently widen scope. PDFs, NLP detectors, custom-rule
   authoring, browser extensions, and clipboard ingestion are out
   of v0.1. If a milestone seems to need them, stop and surface
