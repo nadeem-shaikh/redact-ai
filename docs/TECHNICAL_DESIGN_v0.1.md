@@ -221,15 +221,32 @@ Adding a new detector in v0.1 means adding a class, registering
 its `rule_id` in `registry.py`, and adding a row to the policy
 schema's `detectors` allow-list (NFR-6.3).
 
+**Coordinate-space contract.** Detectors run against the OCR
+`Document`, whose bboxes are in **normalised-image** coordinates.
+The orchestrator (the `iter_active_detectors` driver) maps every
+finding's bbox from normalised space back to **input-image**
+coordinates via `NormalisedImage.transform.inverse_apply` before
+the finding is returned to the pipeline. By the time a `Finding`
+reaches the redactor, reporter, or HTTP boundary, its bbox is in
+input-image coordinates (matches `API_SPEC_v0.1.md` §3.7 and
+preserves FR-4.4).
+
 **Detector failure semantics.** A single detector raising during
 its `detect()` call is **non-fatal** (FR-8.2): the registry catches
 the exception, appends a `Warning(source="detector",
 code="detector_failed", message=...)` to the manifest, and
-continues with the remaining detectors. `DetectorError`
-(`E_DETECTOR`) is raised only when the **detection orchestrator
-itself** cannot proceed (e.g., a registered `rule_id` cannot be
-imported, the policy references unknown rules, or every detector
-in the active set raised).
+continues with the remaining detectors. The two failure modes are
+distinct:
+
+- **`PolicyError` (`E_POLICY`)** — raised by the policy loader and
+  the orchestrator's startup check when the policy references a
+  `rule_id` that is not in the registry, or otherwise fails
+  validation. This is a **client-side configuration error**.
+- **`DetectorError` (`E_DETECTOR`)** — raised only when the
+  orchestrator itself cannot proceed *at runtime* despite a
+  validated policy (e.g., a registered detector class fails to
+  import at first use, or every detector in the active set
+  raised). This is an **upstream/runtime failure**.
 
 ### 5.5 `redact_ai.redact`
 
@@ -238,17 +255,17 @@ class Redactor(Protocol):
     def redact(
         self,
         original: ImageInput,
-        normalised: NormalisedImage,
         findings: list[Finding],
         policy: Policy,
     ) -> ImageOutput: ...
 ```
 
 `BlockRedactor` is the only style implemented in v0.1 (FR-4.2). It
-operates on `original.bytes` (so the output preserves input
-dimensions per FR-4.4) and uses `normalised.transform` to map each
-finding's bbox from normalised coordinates back into input
-coordinates before drawing.
+operates on `original.bytes` so the output preserves input
+dimensions per FR-4.4. Findings arrive with `bbox` already in
+input-image coordinates (the detection orchestrator performs the
+single inverse map; see §5.4); the redactor never sees the
+`NormalisedImage` and never deals with the transform.
 
 `BlurRedactor`, `PixelateRedactor`, `LabelRedactor` exist as stubs
 that raise `NotImplementedError` (v0.2; ROADMAP).
@@ -286,13 +303,19 @@ FastAPI app factory + routes + middleware + static assets.
 ```python
 class ServerConfig(BaseModel):
     host: Literal["127.0.0.1"] = "127.0.0.1"
-    port: int = 0                # ephemeral by default
+    port: int = 0                  # ephemeral by default
     ocr_engine: Literal["paddle", "tesseract"] = "paddle"
     log_level: str = "INFO"
+    request_timeout_seconds: int = 30  # hard upper bound for any single POST /redact
 
 def create_app(config: ServerConfig) -> FastAPI: ...
 def run(config: ServerConfig) -> None: ...
 ```
+
+The `request_timeout_seconds` budget covers the worst case where a
+`POST /redact` arrives during OCR warm-up: the handler waits up to
+this many seconds before returning a typed timeout error (see the
+warm-up override in §13.7).
 
 Routes registered: `POST /redact`, `GET /policies`, `GET /healthz`
 (liveness — process up, listener bound), `GET /readyz` (readiness —
@@ -300,13 +323,26 @@ OCR engine loaded and able to serve), plus the static page at
 `GET /`. Middleware order (outermost first): `OriginHostValidator`,
 `CsrfValidator`, framework-default.
 
-`/healthz` returns `200 {"status": "ok", ...}` as soon as the
-listener is bound. `/readyz` returns `200` once the OCR engine has
-finished its first `recognise()` warm-up; while warming it returns
-`503 {"error": {"code": "E_IO", "stage": "server",
-"hint": "OCR engine warming up; retry shortly."}}`. `POST /redact`
-blocks on the warm-up if it arrives early; the wait is bounded by
-the request timeout.
+**Status endpoints are outside the typed-error contract.** Both
+`/healthz` and `/readyz` return plain status JSON with no
+`ErrorEnvelope` wrapper, so they don't collide with the §13.7
+HTTP-status mapping for `E_*` codes. Specifically:
+
+- `GET /healthz` returns `200 {"status": "ok", "version": "..."}`
+  as soon as the listener is bound.
+- `GET /readyz` returns `200 {"status": "ready"}` once the OCR
+  engine has finished its first `recognise()` warm-up. While
+  warming it returns `503 {"status": "warming",
+  "hint": "OCR engine warming up; retry shortly."}` — note the
+  body uses a `status` key, not an `error` key, and carries no
+  typed code; readiness is a transport-level concern, not a
+  pipeline error.
+
+`POST /redact` requests that arrive before warm-up completes block
+in a worker thread with a hard upper bound of
+`ServerConfig.request_timeout_seconds`; on timeout the handler
+returns `504` with `code = "E_IO"`, `stage = "server"`, and a
+clear hint (see §13.7).
 
 ### 5.9 `redact_ai.cli`
 
@@ -419,16 +455,33 @@ class Document(BaseModel):
 from typing import Literal
 
 class BBoxTransform(BaseModel):
-    """Forward transform: input space -> normalised space.
+    """Affine transform from input space to normalised space.
 
-    Sufficient for the v0.1 ingestor which only ever scales
-    uniformly and applies an orthogonal rotation; no translation,
-    no shear. The redactor uses the inverse to map normalised-space
-    bboxes back to input coordinates.
+    Stored as a 2x3 matrix [[a, b, tx], [c, d, ty]] applied as
+    (x', y') = (a*x + b*y + tx, c*x + d*y + ty). This shape
+    captures every preprocessing operation the v0.1 ingestor
+    actually performs (uniform scale, orthogonal or arbitrary-
+    angle rotation, translation, padding); a more restricted
+    schema would not survive a real-world deskew.
+
+    `inverse()` returns the matrix that maps normalised space
+    back to input space. `inverse_apply(box)` maps a Box from
+    normalised space to input space; for non-orthogonal rotations
+    the four corners of the box rotate to a quadrilateral, and
+    `inverse_apply` returns the AXIS-ALIGNED BOUNDING BOX of
+    that quadrilateral - an intentional, conservative
+    over-approximation that guarantees the masked region covers
+    the original detection (see ADR-005).
     """
-    scale_x: float                                # normalised_width  / input_width
-    scale_y: float                                # normalised_height / input_height
-    rotation: Literal[0, 90, 180, 270] = 0
+    a: float
+    b: float
+    c: float
+    d: float
+    tx: float
+    ty: float
+
+    def inverse(self) -> "BBoxTransform": ...
+    def inverse_apply(self, box: Box) -> Box: ...
 
 class NormalisedImage(BaseModel):
     bytes: bytes                                  # post-preprocessing, fed to OCR
@@ -554,10 +607,13 @@ Category = Literal[
 
 class Finding(BaseModel):
     # id = sha256(f"{rule_id}:{page_index}:{bbox.x}:{bbox.y}:{bbox.w}:{bbox.h}").hexdigest()[:16]
+    # The id is computed AFTER the orchestrator maps the bbox into
+    # input-image coordinates so the id is stable across OCR
+    # preprocessing changes that don't change input-space geometry.
     id: str
     category: Category
     rule_id: RuleId
-    bbox: Box                                 # in normalised-image coordinates
+    bbox: Box                                 # in INPUT-image coordinates (matches API_SPEC §3.7)
     confidence: Confidence
     matched_text: str | None = None           # only when verbose_report=True
     meta: dict[str, Any] = {}                 # e.g. {"also_matched": ["CO-001", ...]}
@@ -584,8 +640,17 @@ class Manifest(BaseModel):
 class RedactionResult(BaseModel):
     output_image: ImageOutput
     manifest: Manifest
-    # NOTE: no separate `warnings` list. All warnings live on `manifest.warnings`.
+    warnings: list[Warning] = []  # mirror of manifest.warnings (matches API_SPEC §3.4)
 ```
+
+**Why both lists exist.** `manifest.warnings` is the canonical
+durable record (it lives inside the on-disk manifest and inside
+the manifest JSON returned alongside the image). `RedactionResult.warnings`
+is a transient mirror retained at the result envelope so the
+documented `API_SPEC_v0.1.md` §3.4 shape is preserved for any
+client reading the in-memory result without unwrapping the
+manifest. The pipeline guarantees the two lists are always equal
+in canonical-form order.
 
 ### 6.7 Error envelope (closes `API_SPEC_v0.1.md` TODO)
 
@@ -729,24 +794,31 @@ each `Finding` bbox and verifies the result.
    **original** dimensions (FR-4.4). The normalised bytes are
    discarded for masking — they were the OCR engine's input only.
 2. Build an `ImageDraw.Draw` context.
-3. For each `Finding`:
-   - Map the bbox from normalised space to input space using the
-     inverse of `normalised.transform`:
-     `(x, y, w, h) → (x / scale_x, y / scale_y, w / scale_x, h / scale_y)`,
-     adjusting for any orthogonal rotation. Snap to integer pixels
-     after the inverse map; never round-down to zero (a 0-pixel mask
-     is itself an `E_REDACTION`).
+3. For each `Finding` (whose `bbox` is already in input-image
+   coordinates per §5.4):
+   - Snap to integer pixels; clamp to image bounds; reject any
+     resulting zero-area rectangle as `E_REDACTION` (a 0-pixel
+     mask is itself a fail-closed condition).
    - `draw.rectangle((x, y, x+w-1, y+h-1), fill=policy.fill_colour)`.
      `policy.fill_colour` defaults to `#000000` (see §6.5).
-4. **Post-condition check (FR-4.5).** For each masked rectangle,
-   sample every pixel and assert it equals `policy.fill_colour`. If
-   any pixel differs, raise `RedactionError` (`E_REDACTION`) and
-   produce no output (ADR-005).
-5. Re-encode in `original.mime_type` (FR-7.1). For lossy formats
-   (JPEG, WebP), encode at quality 95 then decode the encoded bytes
-   and re-run the post-condition; if any masked pixel drifted
-   outside a tolerance band of ±1 LSB per channel, raise
-   `RedactionError`.
+4. **Lossless post-condition (FR-4.5).** For each masked rectangle,
+   sample every pixel **before** any re-encoding and assert it
+   equals `policy.fill_colour` exactly. If any pixel differs,
+   raise `RedactionError` (`E_REDACTION`) and produce no output
+   (ADR-005). This runs in the lossless RGB intermediate buffer so
+   the assertion is bit-exact.
+5. Re-encode in `original.mime_type` (FR-7.1):
+   - For **lossless** formats (PNG): re-decode the encoded bytes
+     and re-run the bit-exact assertion as in step 4.
+   - For **lossy** formats (JPEG, WebP at quality 95): re-decode
+     the encoded bytes, sample every pixel of every masked
+     rectangle, and assert that **per-channel deviation from
+     `policy.fill_colour` is ≤ 8 LSB**. The 8-LSB band reflects
+     real chroma-subsampling and DCT-quantisation behaviour at
+     q=95 around high-contrast mask edges; a tighter bound trips
+     spuriously, a looser bound risks letting visible content
+     bleed through. If any pixel exceeds the band, raise
+     `RedactionError`.
 
 ### 8.2 Future styles (v0.2)
 
@@ -792,18 +864,42 @@ free.
 
 ### 9.2 Determinism (DT-001)
 
-PaddleOCR — like most ML inference stacks — is **not bit-deterministic
-across runs** (BLAS reductions, thread scheduling, kernel non-
-determinism). The pipeline therefore splits into a **non-deterministic
-OCR stage** and a **deterministic post-OCR pipeline** (Detectors →
-Redactor → Reporter). DT-001 is scoped to the deterministic part.
+The v0.1 pipeline contains two regions with different determinism
+guarantees:
 
-**DT-001 procedure.** Run the full pipeline once on the TC-001
-input, capturing the resulting `Document` to a fixture. Then replay
-the post-OCR pipeline twice from that fixture and assert:
+- **OCR stage** — PaddleOCR (and most ML inference stacks) is
+  **not bit-deterministic across runs**: BLAS reductions, thread
+  scheduling, and kernel non-determinism produce small numerical
+  drift. NFR-2.3 ("Reproducibility of identical inputs: 100%
+  deterministic") cannot be honoured for the OCR stage in v0.1
+  with PaddleOCR as the chosen engine.
+- **Post-OCR pipeline** (Detectors → Redactor → Reporter) — pure
+  Python, no random state, no I/O. **Bit-deterministic by
+  construction.**
 
-1. Byte-identical `RedactionResult.output_image.bytes`.
-2. Identical manifest canonical-form hashes.
+**DT-001 in v0.1.** DT-001 tests the deterministic region
+end-to-end and the OCR stage softly:
+
+1. **Hard determinism (the DT-001 assertion proper).** Run the
+   full pipeline once on the TC-001 input, capturing the resulting
+   `Document` to a fixture. Replay the post-OCR pipeline twice
+   from that fixture and assert (a) byte-identical
+   `RedactionResult.output_image.bytes` and (b) identical manifest
+   canonical-form hashes.
+2. **Soft OCR-stability check.** A separate test runs OCR twice
+   on the same input and asserts a similarity floor — text-overlap
+   ≥ 99% and per-token bbox IoU ≥ 0.95 — to detect regressions in
+   the engine adapter without making byte-determinism a hard
+   requirement of the OCR stage.
+
+**Cross-doc reconciliation.** The wording of NFR-2.3 in
+`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md` predates the choice of an ML
+OCR engine and therefore overstates v0.1's determinism guarantee.
+A follow-up PR will refine NFR-2.3 to read "post-OCR pipeline:
+100% deterministic for identical inputs; OCR stage: stability
+asserted by the soft similarity check above." Until that change
+lands, treat this section as the implementing contract for v0.1
+(per the doc's status as the implementation blueprint).
 
 **Manifest canonical form.**
 
@@ -816,22 +912,17 @@ the post-OCR pipeline twice from that fixture and assert:
    `separators=(",", ":")`, no whitespace, datetimes excluded.
 5. Hash with SHA-256 to produce the comparison key.
 
-**Soft OCR-stability check (separate test).** A non-DoD test runs
-OCR twice on the same input and asserts a soft similarity floor —
-text-overlap ≥ 99% and per-token bbox IoU ≥ 0.95 — to detect
-regressions in the engine adapter without making byte-determinism a
-hard requirement of the OCR stage.
-
 ### 9.3 Error handling
 
 Each stage raises a typed `RedactError` subclass. A single boundary
 handler in `redact_ai.server.app` catches the base class and
 converts to `ErrorEnvelope` + the HTTP status from §13.
 
-**Single warnings list.** The pipeline carries warnings on
-`Manifest.warnings` only. `RedactionResult` does not duplicate them
-(see §6.6). All non-fatal events from any stage are appended to
-`Manifest.warnings`.
+**Warnings list ownership.** The canonical store of non-fatal
+events from any stage is `Manifest.warnings`. The pipeline also
+populates `RedactionResult.warnings` as a mirror so the documented
+`API_SPEC_v0.1.md` §3.4 result shape is preserved (see §6.6); the
+two lists are guaranteed equal in canonical-form order.
 
 **Detector failures are partial** (FR-8.2): a single detector
 raising → `Warning(source="detector")`, continue with the rest.
@@ -1084,9 +1175,18 @@ disables it; this is enforced at write time, not just read time.
 | `E_IO` | 500 Internal Server Error | Filesystem / port / engine-import failure |
 | `E_POLICY` | 400 Bad Request | Policy-level rejection (CSRF, origin, validation), unless §13.2 / §13.3 specifies 403 |
 
-§13.2 and §13.3 explicitly produce HTTP 403 even though the code is
-`E_POLICY`; the table above documents the default mapping for any
-other policy-level error.
+**Documented overrides** of the table above:
+
+- §13.2 and §13.3 produce HTTP **403** even though the code is
+  `E_POLICY` (the defaults table would otherwise resolve to 400).
+- A `POST /redact` that exceeds `ServerConfig.request_timeout_seconds`
+  while waiting for OCR warm-up (see §5.8) produces HTTP **504**
+  (Gateway Timeout) with `code = "E_IO"`, `stage = "server"`. The
+  504 is semantically correct for a timeout and overrides the
+  default `E_IO → 500` mapping for this specific path.
+- `GET /healthz` and `GET /readyz` are status endpoints and do
+  **not** emit `ErrorEnvelope` bodies; they return plain status
+  JSON (see §5.8).
 
 ### 13.8 Threats out of scope
 
