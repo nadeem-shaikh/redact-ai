@@ -169,7 +169,11 @@ Goal: the system can turn an image into a `Document`.
   re-runs are idempotent.
 - The optional Tesseract adapter is gated behind the
   `[ocr-tesseract]` extras install and is not imported when not
-  installed.
+  installed. This is exercised by the **optional-import boundary
+  job** in §6, which installs `.[dev]` only and asserts that
+  importing the Tesseract adapter fails with a clear typed error
+  while `redact_ai` and the default PaddleOCR engine still import
+  cleanly.
 
 ### M3 — Detectors
 
@@ -379,25 +383,47 @@ exact YAML is mechanical and lands as part of M6.
 - **Matrix.** Linux, macOS, Windows by Python 3.11 and 3.12.
   `fail-fast` is off so that a single platform regression does
   not mask others.
-- **Ordered steps per cell.**
+- **Ordered steps per cell — required (block merge on red).**
   1. Repo checkout.
   2. The matrix-selected Python is set up.
   3. Tesseract is installed via the platform's standard package
-     manager. Exact invocations live in
-     [`CONTRIBUTING.md`](./CONTRIBUTING.md) §10 (per-platform
-     table); the workflow mirrors them.
+     manager. CI uses the **Chocolatey** row on Windows (the
+     `windows-latest` runner ships Chocolatey by default; Scoop
+     in the `CONTRIBUTING.md` §10 table is a contributor-only
+     convenience and is **not** used in CI). Linux and macOS
+     mirror the corresponding rows in the §10 table.
   4. Editable install of the project with the development and
-     opt-in OCR extras enabled.
+     opt-in OCR extras enabled (`pip install -e ".[dev,ocr-tesseract]"`).
   5. The `redact-ai prefetch-models` subcommand is run to warm
      both engines so latency and readiness tests are not
      dominated by first-run weight download.
   6. Lint via Ruff.
   7. Type-check via mypy on the `redact_ai` package.
   8. Test suite via pytest.
-  9. The regenerator-stability guard from §5.
+- **Ordered steps per cell — supplementary (do not block merge
+  on red, but flag a regression).**
+  9. The regenerator-stability guard from §5. Marked supplementary
+     to stay consistent with §1 and §5: a determinism-only failure
+     here surfaces a real regression, but the canonical Definition
+     of Done remains TDD §16.
+- **Optional-import boundary job (separate, required).** A small
+  additional CI job — Linux + Python 3.12 only, fast — installs
+  the project **without** the `[ocr-tesseract]` extra
+  (`pip install -e ".[dev]"`) and asserts:
+  - `import redact_ai` succeeds.
+  - `import redact_ai.ocr.paddle` succeeds (default engine).
+  - Importing the Tesseract adapter fails with a clear typed
+    error (e.g., `pytesseract` `ModuleNotFoundError` surfaces a
+    `RedactError` with `code = "E_IO"` and a hint pointing at
+    the `[ocr-tesseract]` extras install).
+  This is the only CI cell that proves M2's optional-import
+  acceptance gate (§4 M2). Without it, accidentally removing the
+  optional-import boundary in `redact_ai/ocr/__init__.py` would
+  go unnoticed.
 
-A cell is green only if every step is green. A red cell blocks
-PR merge.
+A cell is green when every **required** step in that cell is
+green. A red required step blocks merge; a red supplementary
+step is reported as a flag but does not block merge.
 
 ---
 

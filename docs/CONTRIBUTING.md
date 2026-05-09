@@ -132,14 +132,19 @@ Tesseract on contributors' machines for the optional
 `[ocr-tesseract]` extras path (PaddleOCR is the default and is
 installed by `pip`). Install commands by platform:
 
-| Platform | Install command |
-| --- | --- |
-| Linux (Debian / Ubuntu) | `sudo apt-get update && sudo apt-get install -y tesseract-ocr` |
-| Linux (Fedora) | `sudo dnf install -y tesseract` |
-| macOS (Homebrew) | `brew install tesseract` |
-| Windows (Chocolatey) | `choco install -y tesseract` |
-| Windows (Scoop) | `scoop install tesseract` |
+| Platform | Install command | Used in CI |
+| --- | --- | --- |
+| Linux (Debian / Ubuntu) | `sudo apt-get update && sudo apt-get install -y tesseract-ocr` | **yes** |
+| Linux (Fedora) | `sudo dnf install -y tesseract` | no |
+| macOS (Homebrew) | `brew install tesseract` | **yes** |
+| Windows (Chocolatey) | `choco install -y tesseract` | **yes** |
+| Windows (Scoop) | `scoop install tesseract` | no |
 
+The "Used in CI" column is the source of truth for the CI matrix;
+the GitHub-hosted Windows runner ships with Chocolatey by default,
+so CI uses the Chocolatey row. Scoop and Fedora rows are
+contributor conveniences for local setup only and require their
+own bootstrap (Scoop installer, `dnf` on a Fedora-family distro).
 After installing the binary, install the project with both
 extras for development:
 
@@ -147,5 +152,5 @@ extras for development:
 pip install -e ".[dev,ocr-tesseract]"
 ```
 
-The CI matrix mirrors these exact commands; see
+The CI matrix mirrors the rows marked "yes" above; see
 [`MVP_BUILD_SPEC_v0.1.md`](./MVP_BUILD_SPEC_v0.1.md) §6.
