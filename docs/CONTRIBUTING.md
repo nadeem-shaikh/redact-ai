@@ -64,13 +64,28 @@ an AI agent:
 
 ## 5. Pull Request Workflow
 
-1. Fork the repository.
-2. Create a topic branch: `docs/<short-description>` or
-   `proposal/<short-description>`.
+This repository uses an **integration branch model**:
+
+- `main` — release-quality, tagged.
+- `dev` — the integration branch where v0.1 work lands first.
+- short-lived feature branches off `dev` for individual changes.
+
+Step-by-step:
+
+1. Fork the repository (or, for maintainers, branch directly).
+2. Create a topic branch off `dev` using one of:
+   - `feat/<short-description>` for implementation work.
+   - `docs/<short-description>` or `proposal/<short-description>`
+     for documentation and design proposals.
+   - `feat/mvp-mN-<slug>` for milestone PRs against the
+     [`MVP_BUILD_SPEC_v0.1.md`](./MVP_BUILD_SPEC_v0.1.md)
+     milestones.
 3. Keep PRs focused — one document or one cohesive idea per PR.
-4. Update [`DECISIONS.md`](./DECISIONS.md) when proposing architectural
-   changes.
-5. Ensure markdown renders cleanly and links resolve.
+4. Open the PR with `base = dev`. Promotion from `dev → main`
+   happens on releases via a separate PR by maintainers.
+5. Update [`DECISIONS.md`](./DECISIONS.md) when proposing
+   architectural changes.
+6. Ensure markdown renders cleanly and links resolve.
 
 ---
 
@@ -106,3 +121,36 @@ project's [MIT License](../LICENSE).
 
 - File an issue with the `question` label.
 - Reference the closest relevant document — it speeds up the discussion.
+
+---
+
+## 10. Local development setup
+
+The v0.1 implementation milestones in
+[`MVP_BUILD_SPEC_v0.1.md`](./MVP_BUILD_SPEC_v0.1.md) require
+Tesseract on contributors' machines for the optional
+`[ocr-tesseract]` extras path (PaddleOCR is the default and is
+installed by `pip`). Install commands by platform:
+
+| Platform | Install command | Used in CI |
+| --- | --- | --- |
+| Linux (Debian / Ubuntu) | `sudo apt-get update && sudo apt-get install -y tesseract-ocr` | **yes** |
+| Linux (Fedora) | `sudo dnf install -y tesseract` | no |
+| macOS (Homebrew) | `brew install tesseract` | **yes** |
+| Windows (Chocolatey) | `choco install -y tesseract` | **yes** |
+| Windows (Scoop) | `scoop install tesseract` | no |
+
+The "Used in CI" column is the source of truth for the CI matrix;
+the GitHub-hosted Windows runner ships with Chocolatey by default,
+so CI uses the Chocolatey row. Scoop and Fedora rows are
+contributor conveniences for local setup only and require their
+own bootstrap (Scoop installer, `dnf` on a Fedora-family distro).
+After installing the binary, install the project with both
+extras for development:
+
+```text
+pip install -e ".[dev,ocr-tesseract]"
+```
+
+The CI matrix mirrors the rows marked "yes" above; see
+[`MVP_BUILD_SPEC_v0.1.md`](./MVP_BUILD_SPEC_v0.1.md) §6.
