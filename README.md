@@ -275,6 +275,7 @@ Full threat model and risk register:
 | [UX_FLOW_v0.1.md](./docs/UX_FLOW_v0.1.md) | Step-by-step user interactions |
 | [TECH_STACK_OPTIONS_v0.1.md](./docs/TECH_STACK_OPTIONS_v0.1.md) | Stack comparison + recommendation |
 | [TECHNICAL_DESIGN_v0.1.md](./docs/TECHNICAL_DESIGN_v0.1.md) | MVP implementation blueprint (TDD) |
+| [MVP_BUILD_SPEC_v0.1.md](./docs/MVP_BUILD_SPEC_v0.1.md) | Agent-executable build brief (milestones, gates, do-nots) |
 | [DECISIONS.md](./docs/DECISIONS.md) | Architecture Decision Log (ADR) |
 | [ROADMAP.md](./docs/ROADMAP.md) | Milestones and release plan |
 | [CONTRIBUTING.md](./docs/CONTRIBUTING.md) | How to contribute |
