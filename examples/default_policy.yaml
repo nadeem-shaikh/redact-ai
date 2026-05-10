@@ -1,0 +1,92 @@
+# redact-ai — default policy (v0.1)
+#
+# Validated against the schema in docs/BUILD_SPEC_v0.1.md §6 and
+# loaded by `redact_ai.policy.loader` at startup. This file is the
+# canonical reference; tests assert that the runtime default matches
+# this YAML byte-for-byte after normalisation.
+#
+# Posture: strict (LOW-confidence findings are still redacted) — see
+# ADR-009 in docs/DECISIONS.md.
+
+id: default
+version: 0.1.0
+description: Baseline strict policy for v0.1. Redacts identity, contact, financial, and credential entities; health/location codes are off by default.
+posture: strict
+verbose_report: false
+
+redaction_style:
+  kind: block
+  color: "#000000"
+  padding_px: 2
+
+detectors:
+  # --- IDENTITY ---
+  - id: ID-001
+    enabled: true
+    threshold: low
+  - id: ID-002
+    enabled: true
+    threshold: low
+  - id: ID-003
+    enabled: true
+    threshold: low
+  - id: ID-004
+    enabled: true
+    threshold: low
+  - id: ID-005
+    enabled: true
+    threshold: medium
+
+  # --- CONTACT ---
+  - id: CO-001
+    enabled: true
+    threshold: low
+  - id: CO-002
+    enabled: true
+    threshold: low
+  - id: CO-003
+    enabled: true
+    threshold: medium
+
+  # --- FINANCIAL ---
+  - id: FI-001
+    enabled: true
+    threshold: low      # Luhn already gates to HIGH
+  - id: FI-002
+    enabled: true
+    threshold: low      # mod-97 already gates to HIGH
+  - id: FI-003
+    enabled: true
+    threshold: medium
+  - id: FI-004
+    enabled: true
+    threshold: low
+
+  # --- HEALTH ---
+  - id: HE-001
+    enabled: true
+    threshold: low
+  - id: HE-002
+    enabled: false      # off by default per REDACTION_RULES_v0.1
+  - id: HE-003
+    enabled: false
+
+  # --- CREDENTIALS ---
+  - id: CR-001
+    enabled: true
+    threshold: medium
+  - id: CR-002
+    enabled: true
+    threshold: low
+  - id: CR-003
+    enabled: true
+    threshold: low
+
+  # --- LOCATION ---
+  - id: LO-001
+    enabled: true
+    threshold: low
+  # LO-002 (vehicle plates) is not in the v0.1 registry.
+
+  # --- CUSTOM ---
+  # CU-001 omitted; users add it explicitly when authoring custom policies.

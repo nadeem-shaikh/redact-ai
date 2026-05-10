@@ -274,6 +274,8 @@ Full threat model and risk register:
 | [TEST_CASES_v0.1.md](./docs/TEST_CASES_v0.1.md) | Realistic example inputs/outputs |
 | [UX_FLOW_v0.1.md](./docs/UX_FLOW_v0.1.md) | Step-by-step user interactions |
 | [TECH_STACK_OPTIONS_v0.1.md](./docs/TECH_STACK_OPTIONS_v0.1.md) | Stack comparison + recommendation |
+| [BUILD_SPEC_v0.1.md](./docs/BUILD_SPEC_v0.1.md) | Implementation spec: layout, deps, schemas, build/run |
+| [DETECTORS_v0.1.md](./docs/DETECTORS_v0.1.md) | Per-rule regex / heuristic specifications |
 | [DECISIONS.md](./docs/DECISIONS.md) | Architecture Decision Log (ADR) |
 | [ROADMAP.md](./docs/ROADMAP.md) | Milestones and release plan |
 | [CONTRIBUTING.md](./docs/CONTRIBUTING.md) | How to contribute |

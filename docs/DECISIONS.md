@@ -150,4 +150,83 @@ Entry template:
 
 ---
 
+## ADR-008 — Tesseract is the v0.1 default OCR engine
+
+- **Date:** 2026-05-10
+- **Status:** Accepted
+- **Context:**
+  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) left
+  the v0.1 OCR engine as an open question (Tesseract for breadth vs.
+  PaddleOCR for accuracy). Tesseract is ~80 MB total install,
+  available on every supported platform via standard package
+  managers, and ships with bbox metadata sufficient for our
+  document model. PaddleOCR adds 0.5–1 GB and a heavy ML runtime
+  (`paddlepaddle`) that conflicts with the v0.1 "lean baseline"
+  goal.
+- **Decision:** v0.1 ships **Tesseract** (via `pytesseract`) as the
+  default OCR adapter. PaddleOCR is provided as the opt-in
+  `redact-ai[ocr-paddle]` extra; the adapter exists, is loadable,
+  and runs the golden corpus, but is not the recall baseline for
+  v0.1 NFR-2.1.
+- **Consequences:**
+  - `recognise()` returns Tesseract token-level confidence on the
+    `0.0–1.0` scale (after dividing the engine's `0–100`).
+  - The recall target (≥ 95% on the curated corpus) is measured
+    against Tesseract output. A miss attributable to OCR triggers
+    re-evaluation of PaddleOCR for v0.2, not a v0.1 default change.
+  - First-run OS firewall prompts and Tesseract-install hints are
+    documented in `CONTRIBUTING.md`.
+
+---
+
+## ADR-009 — Default policy posture is "strict"
+
+- **Date:** 2026-05-10
+- **Status:** Accepted
+- **Context:**
+  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) and
+  [`UX_FLOW_v0.1.md`](./UX_FLOW_v0.1.md) left "strict vs lenient
+  default" open. The product's stated bias is "false negatives are
+  a safety failure, false positives are a UX failure"
+  ([`REDACTION_RULES_v0.1.md`](./REDACTION_RULES_v0.1.md) §4).
+- **Decision:** The default policy posture is **strict**:
+  LOW-confidence findings are still redacted. Users who prefer a
+  lighter touch can switch to a `lenient` policy that raises every
+  detector's effective threshold by one step.
+- **Consequences:**
+  - The v0.1 product errs toward over-redaction on ambiguous
+    inputs.
+  - The UI surfaces a "Review carefully" badge whenever any
+    `low`-confidence finding contributed to the output, so the user
+    can spot over-redaction without inspecting the manifest.
+  - Lenient mode is documented but not the recommended default.
+
+---
+
+## ADR-010 — Project layout: single Python package under `src/redact_ai/`
+
+- **Date:** 2026-05-10
+- **Status:** Accepted
+- **Context:** ADR-003 deliberately kept the v0.1 specs
+  technology-agnostic. The recommended stack
+  ([`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) §A)
+  is Python; building the v0.1 application requires a concrete
+  module map and packaging strategy.
+- **Decision:** Use a **single Python package** (`src/redact_ai/`)
+  with a `pyproject.toml` (PEP 621) declaring direct dependencies,
+  and `uv.lock` for reproducible installs. The full layout is
+  pinned in [`BUILD_SPEC_v0.1.md`](./BUILD_SPEC_v0.1.md) §4.
+- **Consequences:**
+  - The pipeline boundaries from ADR-004 map 1:1 to subpackages
+    (`pipeline/ingest`, `pipeline/ocr`, `pipeline/detect`,
+    `pipeline/redact`, `pipeline/report`).
+  - The FastAPI surface lives in `redact_ai.server`, isolated from
+    pipeline modules so the same pipeline can be re-hosted in v1.0+
+    (Option D in the tech-stack doc) without touching detection
+    code.
+  - A future Rust core (Option C) can be introduced as a peer
+    package consumed via `pyo3` without restructuring this layout.
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.
