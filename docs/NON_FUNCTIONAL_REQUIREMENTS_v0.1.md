@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | NFR-2.1 | Recall on baseline PII categories | ≥ 95% on the curated corpus |
 | NFR-2.2 | Precision on benign screenshots | ≥ 95% (FP rate ≤ 5%) |
-| NFR-2.3 | Reproducibility of identical inputs | 100% deterministic |
+| NFR-2.3 | Reproducibility of identical inputs | Post-OCR pipeline (Detector → Redactor → Reporter) **MUST** be 100% bit-deterministic; the OCR stage **MUST** meet a stability floor (≥ 99% text-overlap, ≥ 0.95 per-token bbox IoU) on identical inputs. See [`TECHNICAL_DESIGN_v0.1.md`](./TECHNICAL_DESIGN_v0.1.md) §9.2 for the split-determinism rationale. |
 
 ---
 

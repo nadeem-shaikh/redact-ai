@@ -9,7 +9,9 @@
 > specs), [ADR-004](./DECISIONS.md) (modular pipeline),
 > [ADR-005](./DECISIONS.md) (fail-closed),
 > [ADR-006](./DECISIONS.md) (manifest excludes raw matched text by
-> default), and [ADR-007](./DECISIONS.md) (local web UI surface).
+> default), [ADR-007](./DECISIONS.md) (local web UI surface), and
+> [ADR-008](./DECISIONS.md) (PaddleOCR as the v0.1 default OCR
+> engine).
 
 ---
 
@@ -42,17 +44,17 @@ schema, the error-envelope shape, and the manifest-equivalence
 definition for DT-001) and by publishing concrete picks where the
 v0.1 specs are deliberately technology-agnostic per ADR-003.
 
-The most consequential pick: **PaddleOCR is the default v0.1 OCR
-engine**. Tesseract is demoted to an opt-in `[ocr-tesseract]`
-extras install. PaddleOCR raises the default install footprint
-from ~50–80 MB to ~500 MB–1 GB and complicates Windows / arm64 CI
-because of `paddlepaddle` wheel availability. Accepted in exchange
-for materially higher OCR accuracy on real-world screenshots,
-especially low-DPI captures and non-Latin scripts. This **diverges**
-from the current
-[`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md), which
-positions PaddleOCR as opt-in extras; a follow-up PR will reconcile
-the tech-stack doc.
+The most consequential pick — **PaddleOCR as the default v0.1 OCR
+engine**, with Tesseract demoted to an opt-in `[ocr-tesseract]`
+extras install — is captured in [ADR-008](./DECISIONS.md). The
+trade-off (default install footprint of ~500 MB–1 GB, harder
+Windows / arm64 CI on `paddlepaddle` wheels) is accepted in
+exchange for materially higher OCR recall on real-world
+screenshots — the regime that dominates `redact-ai`'s inputs
+(anti-aliased UI text, low-DPI captures, emoji). The empirical
+recall comparison on the project's curated corpus is a v0.1
+release-gate item (§16); see ADR-008 for the conditions that
+would revert this default.
 
 ---
 
@@ -92,8 +94,8 @@ the tech-stack doc.
   roadmap, OCR sandboxing, sealed mode, editable review screen,
   and others). Each remains in its source doc with a TODO marker;
   this TDD does not close them.
-- New ADRs. The picks in §4 are recorded inline rather than
-  promoted to ADRs.
+- New ADRs beyond [ADR-008](./DECISIONS.md). The remaining
+  picks in §4 are recorded inline rather than promoted to ADRs.
 
 ---
 
@@ -141,12 +143,10 @@ risks leaking sensitive content (ADR-005, FR-8.1).
 | Test framework | `pytest`, `pytest-asyncio`, `pytest-benchmark`, `httpx`, Pillow `ImageChops` | None |
 | Lint / type | `ruff`, `mypy --strict` | None |
 
-**Note on divergence from `TECH_STACK_OPTIONS_v0.1.md`.** That doc
-currently positions PaddleOCR as opt-in `[ocr-paddle]` extras and
-Tesseract as the v0.1 baseline. This TDD picks the inverse for the
-reasons in the trade-off column. A follow-up PR will reconcile the
-tech-stack doc; do not treat the divergence as authoritative until
-it lands.
+The PaddleOCR default is recorded in
+[ADR-008](./DECISIONS.md);
+[`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) has
+been reconciled in the same change as that ADR.
 
 ---
 
@@ -630,8 +630,8 @@ class Stats(BaseModel):
 class Manifest(BaseModel):
     policy_id: str
     policy_version: str
-    runtime_version: str                      # redact-ai package version (per API_SPEC §6)
-    input_hash: str                           # sha256, hex
+    runtime_version: str                      # redact-ai package version (per API_SPEC §6); metadata only, NOT in the canonical hash (see §9.2)
+    input_hash: str                           # sha256 hex of the ORIGINAL ImageInput.bytes (pre-preprocessing); stable across deskew / denoise / DPI changes
     created_at: datetime                      # ISO 8601, UTC
     stats: Stats
     findings: list[Finding]
@@ -892,25 +892,33 @@ end-to-end and the OCR stage softly:
    the engine adapter without making byte-determinism a hard
    requirement of the OCR stage.
 
-**Cross-doc reconciliation.** The wording of NFR-2.3 in
-`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md` predates the choice of an ML
-OCR engine and therefore overstates v0.1's determinism guarantee.
-A follow-up PR will refine NFR-2.3 to read "post-OCR pipeline:
-100% deterministic for identical inputs; OCR stage: stability
-asserted by the soft similarity check above." Until that change
-lands, treat this section as the implementing contract for v0.1
-(per the doc's status as the implementation blueprint).
+**Cross-doc reconciliation.** NFR-2.3 in
+[`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md`](./NON_FUNCTIONAL_REQUIREMENTS_v0.1.md)
+has been refined to match this split: post-OCR pipeline
+100% bit-deterministic; OCR stage stability asserted by the soft
+similarity check above. The two documents are intended to ship
+together with [ADR-008](./DECISIONS.md).
 
 **Manifest canonical form.**
 
 1. Sort `findings` by tuple `(rule_id, bbox.y, bbox.x, bbox.w, bbox.h, id)`.
 2. Sort `warnings` by tuple `(source, code, message)`.
-3. Exclude `created_at` from the canonical form (only present on
-   the on-disk artefact). Include `input_hash` and `runtime_version`
-   — both are deterministic from input / build.
-4. Serialise as canonical JSON: `sort_keys=True`,
+3. **Include** in the canonical form: `policy_id`, `policy_version`,
+   `input_hash`, `stats`, `findings`, `warnings`. These are the
+   fields whose values are intended to be deterministic for a
+   given (input, policy) pair.
+4. **Exclude** from the canonical form: `created_at` (wall-clock,
+   present only on the on-disk artefact) and `runtime_version`
+   (the implementation under test; including it would make DT-001
+   fail by construction on every release). Both fields remain on
+   the persisted manifest as traceability metadata.
+5. `input_hash` is the SHA-256 of the **original** `ImageInput.bytes`
+   (pre-preprocessing), so the canonical form is stable across
+   deskew / denoise / DPI changes that don't alter the user-visible
+   redaction output.
+6. Serialise as canonical JSON: `sort_keys=True`,
    `separators=(",", ":")`, no whitespace, datetimes excluded.
-5. Hash with SHA-256 to produce the comparison key.
+7. Hash with SHA-256 to produce the comparison key.
 
 ### 9.3 Error handling
 
@@ -1026,7 +1034,7 @@ redact-ai = "redact_ai.cli:main"
 | NFR-1.3 | ≤ 2 s cold-start (process up + listener bound) | Lazy-load PaddleOCR after the listener is bound; cold-start measured by time from process start to first `200 OK` from `GET /healthz` (liveness, **not** readiness — see §5.8). Readiness (`/readyz`) is allowed up to 6 s separately. |
 | NFR-2.1 | Recall ≥ 95% on baseline | Computed against TC-001…TC-010 expected-findings table |
 | NFR-2.2 | False-positive rate ≤ 5% | TC-006 (benign meme) must produce 0 findings |
-| NFR-2.3 | 100% deterministic | DT-001 in `tests/e2e/test_determinism.py` |
+| NFR-2.3 | Post-OCR pipeline 100% bit-deterministic; OCR stage stability ≥ 99% text-overlap and ≥ 0.95 per-token bbox IoU on identical inputs (see §9.2 for the split-determinism rationale) | DT-001 in `tests/e2e/test_determinism.py` — hard assertion replays the post-OCR pipeline from a fixed `Document` fixture and asserts byte-identical `output_image.bytes` + identical canonical-form hashes; a soft OCR-stability assertion in the same file re-runs OCR twice and checks the similarity floor |
 
 **PaddleOCR cold-start handling.** PaddleOCR downloads model
 weights on first use and incurs a 3–5 s constructor cost even with

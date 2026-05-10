@@ -150,4 +150,56 @@ Entry template:
 
 ---
 
+## ADR-008 — PaddleOCR as the v0.1 default OCR engine
+
+- **Date:** 2026-05-10
+- **Status:** Accepted
+- **Context:**
+  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) as
+  originally drafted positioned Tesseract as the v0.1 baseline OCR
+  engine and PaddleOCR as an opt-in `[ocr-paddle]` extras install.
+  While drafting [`TECHNICAL_DESIGN_v0.1.md`](./TECHNICAL_DESIGN_v0.1.md)
+  the team identified two reasons to invert this choice for v0.1:
+  1. **Screenshot accuracy.** `redact-ai`'s primary input
+     (ADR-001) is screenshots — anti-aliased UI text at 96–144 DPI,
+     mixed fonts, low contrast, and emoji. Published benchmarks
+     and prior team experience put Tesseract default-config recall
+     on this regime materially below PaddleOCR-PP-OCRv4 (a
+     scene-dependent gap, but typically large enough to risk the
+     NFR-2.1 95% recall floor).
+  2. **Detection coverage is bounded by OCR.** The v0.1 detectors
+     are deterministic regex/dictionary detectors (TECHNICAL_DESIGN
+     §7) operating on OCR output. Recall ceiling is the OCR's
+     ceiling; weak OCR cannot be compensated for by detector
+     tuning. In a redactor, missed PII is a privacy failure
+     (ADR-005), not a quality issue.
+- **Decision:** PaddleOCR is the default OCR engine for v0.1.
+  Tesseract is demoted to an opt-in `[ocr-tesseract]` extras
+  install for environments where the `paddlepaddle` runtime is
+  unavailable (notably some Windows / arm64 configurations).
+- **Consequences:**
+  - Default install footprint grows from ~50–80 MB to ~500 MB–1 GB.
+  - CI matrix complexity increases on Windows and arm64 because of
+    `paddlepaddle` wheel availability gaps; a documented
+    Tesseract-fallback path remains supported.
+  - The `redact-ai prefetch-models` subcommand
+    (TECHNICAL_DESIGN §10.3) becomes the documented one-time
+    post-install step for the default engine.
+  - The §15 "Recall < 95% on the benchmark" trigger in
+    TECHNICAL_DESIGN remains the project's empirical check on this
+    decision: an in-tree benchmark of Tesseract vs PaddleOCR
+    against the curated corpus is a v0.1 release-gate item (DoD
+    §16). If Tesseract meets NFR-2.1 within a meaningful margin
+    on the curated corpus, this ADR is revisited and the default
+    reverted in favour of the smaller install footprint.
+  - **Supersedes** the corresponding Tesseract-default framing in
+    [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md)
+    (§A.1 OCR row, §A.3 distribution con, §Operational
+    Considerations dependency-footprint paragraph, §Final
+    Recommendation reasoning, and the corresponding open
+    question). That document is updated in the same change as
+    this ADR; the two are intended to ship together.
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.
