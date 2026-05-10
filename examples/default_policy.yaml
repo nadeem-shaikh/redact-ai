@@ -10,7 +10,7 @@
 
 id: default
 version: 0.1.0
-description: Baseline strict policy for v0.1. Redacts identity, contact, financial, and credential entities; health/location codes are off by default.
+description: Baseline strict policy for v0.1. Redacts identity, contact, financial, credential, and GPS-location entities; selected health rules (HE-002 ICD-10 codes, HE-003 prescriptions) remain off by default.
 posture: strict
 verbose_report: false
 

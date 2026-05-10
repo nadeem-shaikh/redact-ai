@@ -65,7 +65,7 @@ Locale: **`en-US` only in v0.1**.
 - **Approach:** Regex over line text, with contextual "DOB"
   proximity boost.
 - **Regex:**
-  ```
+  ```text
   \b(?:0?[1-9]|[12]\d|3[01])[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:19|20)\d{2}\b
   | \b(?:19|20)\d{2}[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:0?[1-9]|[12]\d|3[01])\b
   ```
@@ -112,7 +112,7 @@ Locale: **`en-US` only in v0.1**.
 ### CO-001 — Email addresses
 
 - **Regex (token-aware):**
-  ```
+  ```text
   \b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b
   ```
 - **Confidence:** `HIGH`.
@@ -120,7 +120,7 @@ Locale: **`en-US` only in v0.1**.
 ### CO-002 — Phone numbers
 
 - **Regex:**
-  ```
+  ```text
   (?<![\d/])(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?)\d{3}[\s\-.]?\d{4}(?!\d)
   ```
 - **Validation:** Strip non-digits; require 10–15 digits.
@@ -264,7 +264,7 @@ Locale: **`en-US` only in v0.1**.
 ### CR-003 — Common cloud key prefixes
 
 - **Regex (alternation):**
-  ```
+  ```text
   \bAKIA[0-9A-Z]{16}\b        # AWS access key id
   | \bASIA[0-9A-Z]{16}\b      # AWS temp access key id
   | \bAIza[0-9A-Za-z\-_]{35}\b # Google API key
@@ -281,7 +281,7 @@ Locale: **`en-US` only in v0.1**.
 ### LO-001 — GPS coordinates
 
 - **Regex (decimal degrees):**
-  ```
+  ```text
   (?<![\d.])-?(?:[1-8]?\d(?:\.\d+)?|90(?:\.0+)?)\s*°?\s*[NS]?
   \s*[, ]\s*
   -?(?:1[0-7]\d(?:\.\d+)?|180(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*°?\s*[EW]?(?![\d.])

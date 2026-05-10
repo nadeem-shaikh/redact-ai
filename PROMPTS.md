@@ -196,7 +196,7 @@ v0.1 design specs (`docs/*_v0.1.md`), the prescriptive build docs
 fixtures (`examples/default_policy.yaml`,
 `examples/manifest_example.json`), and produce the working MVP.
 
-````
+````text
 You are implementing redact-ai v0.1 — a privacy-first preprocessing tool that detects and masks sensitive information in screenshots and images before users send them to an LLM. The repository at the current working directory is in a documentation-complete state; your job is to ship the MVP application end-to-end.
 
 ═══════════════════════════════════════════════════════════════════

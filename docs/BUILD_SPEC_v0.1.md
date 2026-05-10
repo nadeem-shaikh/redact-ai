@@ -83,7 +83,7 @@ dev        = ["pytest==8.3.4", "pytest-cov==6.0.0", "hypothesis==6.122.3",
 
 ## 4. Project Layout
 
-```
+```text
 redact-ai/
 ├── pyproject.toml
 ├── uv.lock
