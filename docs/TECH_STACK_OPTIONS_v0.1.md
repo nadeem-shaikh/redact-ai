@@ -70,7 +70,7 @@ exfiltrating user content to make detection work.
 | --- | --- |
 | Language | Python 3.11+ |
 | Packaging | `pyproject.toml` + `pipx` for end-user install |
-| OCR | Tesseract (via `pytesseract`) for MVP; PaddleOCR as a swap-in for accuracy |
+| OCR | **PaddleOCR** as default per [ADR-008](./DECISIONS.md); Tesseract via `pytesseract` as an opt-in `[ocr-tesseract]` extras install for slim-footprint or `paddlepaddle`-unavailable environments |
 | Layout / pre-processing | Pillow + OpenCV |
 | Detection | Project-owned regex/dictionary detectors that map directly to the `redact-ai` rule IDs in [`REDACTION_RULES_v0.1.md`](./REDACTION_RULES_v0.1.md) |
 | Redaction / rendering | Pillow for masking; configurable styles (block, blur, pixelate, label) |
@@ -101,14 +101,14 @@ once the per-OS code is justified.
 
 - **Fastest path to a working MVP.** Every pipeline stage has a mature, well-documented Python library.
 - **Strong ML ecosystem available** *if and when* future detectors require it (spaCy, Hugging Face, transformers) — deliberately **not** pulled into the v0.1 baseline.
-- **Excellent OCR options** (Tesseract, PaddleOCR, EasyOCR) — all installable with one command.
+- **Excellent OCR options** — PaddleOCR is the v0.1 default for screenshot accuracy (per [ADR-008](./DECISIONS.md)); Tesseract is retained as a slim-footprint opt-in (`[ocr-tesseract]`).
 - **Strong dev experience**: REPL-driven iteration on detection rules, rich notebook tooling.
 - **Modular by default** — Python's import model maps cleanly to the pipeline contracts in `ARCHITECTURE_v0.1.md`.
 - Friendly to AI coding agents — large training corpus available.
 
 ### A.3 Cons
 
-- **Distribution friction.** Native deps (Tesseract, OpenCV) make single-binary distribution non-trivial.
+- **Distribution friction.** The default install pulls `paddlepaddle` plus PaddleOCR weights (~500 MB–1 GB); native deps such as OpenCV further complicate single-binary distribution. The Tesseract-fallback path keeps a slimmer install available.
 - **Performance ceiling.** Python is slower than Rust/Go for image-heavy pipelines; mitigated by C-backed libs.
 - **No direct path to a browser extension** — would need a separate stack later.
 - **Cold-start latency** can be noticeable on small inputs.
@@ -264,13 +264,17 @@ to rediscover them.
 
 ### Dependency footprint
 
-The v0.1 baseline is intentionally lean: **Tesseract + Pillow +
-FastAPI + project-owned regex/dictionary detectors**. The only
-heavyweight optional dependency on the v0.1 horizon is **PaddleOCR**,
-which ships the `paddlepaddle` runtime plus multilingual models
-(~500 MB–1 GB). PaddleOCR is gated as an opt-in
-`redact-ai[ocr-paddle]` extras install if Tesseract recall on the
-golden corpus proves insufficient.
+The v0.1 baseline is **PaddleOCR + Pillow + FastAPI +
+project-owned regex/dictionary detectors** (per
+[ADR-008](./DECISIONS.md)). PaddleOCR ships the `paddlepaddle`
+runtime plus multilingual models (~500 MB–1 GB), accepted in
+exchange for higher screenshot recall — the regime that dominates
+real `redact-ai` inputs (anti-aliased UI text, low-DPI captures,
+emoji). Tesseract is retained as an opt-in
+`redact-ai[ocr-tesseract]` extras install for environments where
+`paddlepaddle` is unavailable (notably some Windows / arm64
+configurations) or where install footprint is the dominant
+constraint.
 
 NLP-based detectors (spaCy, transformer NER, hosted analyzer
 frameworks) are **not** part of the v0.1 stack. They are
@@ -294,10 +298,12 @@ due-diligence purposes.
 
 ### Install footprint (Option A baseline)
 
-- `pipx install redact-ai` ≈ **50–80 MB** with Tesseract + Pillow
-  + FastAPI + project detectors.
-- `pipx install 'redact-ai[ocr-paddle]'` ≈ **+0.5–1 GB** when the
-  PaddleOCR extra is enabled.
+- `pipx install redact-ai` ≈ **500 MB–1 GB** with PaddleOCR
+  (default per [ADR-008](./DECISIONS.md)) + Pillow + FastAPI +
+  project detectors.
+- `pipx install 'redact-ai[ocr-tesseract]'` ≈ **50–80 MB** for the
+  Tesseract-only fallback (a system Tesseract install is required
+  separately).
 - The default install carries **no NLP/transformer dependencies**.
 
 ### CI matrix
@@ -305,8 +311,14 @@ due-diligence purposes.
 The supported platform matrix is **macOS, Linux, and Windows**
 (NFR-7.x). Per-platform notes:
 
-- **Tesseract** install differs per platform (Homebrew / apt /
-  chocolatey); document the install steps in `CONTRIBUTING.md`.
+- **PaddleOCR** depends on `paddlepaddle` wheels, which lag on
+  Windows and some arm64 configurations; the CI matrix tests both
+  the PaddleOCR default and the Tesseract fallback path
+  (`pip install redact-ai[ocr-tesseract]` plus
+  `--ocr-engine tesseract`).
+- **Tesseract** (fallback path) install differs per platform
+  (Homebrew / apt / chocolatey); document the install steps in
+  `CONTRIBUTING.md`.
 - **Pillow** ships pre-built wheels on all three platforms.
 - **FastAPI / uvicorn** are pure-Python and portable.
 - The **localhost web UI** must be smoke-tested per platform — first
@@ -322,7 +334,7 @@ The supported platform matrix is **macOS, Linux, and Windows**
 
 **Reasoning**
 
-1. **Velocity.** Python lets us ship a credible image-redaction pipeline in days, not weeks. Tesseract + Pillow + project-owned regex/dictionary detectors give us a working baseline with minimal custom code.
+1. **Velocity.** Python lets us ship a credible image-redaction pipeline in days, not weeks. PaddleOCR + Pillow + project-owned regex/dictionary detectors give us a working baseline with minimal custom code (engine choice per [ADR-008](./DECISIONS.md)).
 2. **Detection quality.** The richest OCR and PII tooling lives in Python. Accuracy is the riskiest variable for `redact-ai`; we want the strongest libraries on day one.
 3. **Right surface for non-CLI users.** A FastAPI server bound to `127.0.0.1` plus a single drag-and-drop page gives every user a familiar canvas (their browser) without compromising local-first (ADR-002 / ADR-007).
 4. **Modularity.** The architecture's pipeline boundaries map cleanly to Python modules and adapter contracts, making future swaps (PaddleOCR, custom detectors) low-cost.
@@ -383,8 +395,8 @@ in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
 | Risk | Mitigation | Trigger to revisit |
 | --- | --- | --- |
 | OCR accuracy varies by image quality | Golden test corpus per [`TEST_CASES_v0.1.md`](./TEST_CASES_v0.1.md); per-finding confidence in the manifest | Recall on baseline corpus drops below 95% |
-| Python packaging on Windows is fragile | CI matrix tests wheels per platform; documented workarounds; bundle Tesseract install hints in `CONTRIBUTING.md` | Three or more user-reported install failures in a release window |
-| Heavy optional OCR deps inflate supply-chain risk | Pin + hash; ship Tesseract-only by default; PaddleOCR as an opt-in `[ocr-paddle]` extras install | Adoption of the opt-in OCR engine blocked by install size |
+| Python packaging on Windows is fragile | CI matrix tests wheels per platform; documented workarounds; bundle `paddlepaddle` (default) and Tesseract (fallback) install hints in `CONTRIBUTING.md` | Three or more user-reported install failures in a release window |
+| Heavy default OCR deps inflate supply-chain risk | Pin + hash; PaddleOCR is the default per [ADR-008](./DECISIONS.md); Tesseract retained as an opt-in `[ocr-tesseract]` extras install for slim-footprint or `paddlepaddle`-unavailable environments | User reports of `paddlepaddle` install failures, supply-chain concerns, or NFR-2.1 met by Tesseract on the curated corpus within a meaningful margin |
 | Localhost server mistaken for cloud SaaS | README banner + UI footer ("Everything runs on your machine"); no telemetry endpoints in the binary | User confusion in support / community channels |
 | Browser drag-drop UX inconsistent across browsers | Ship multipart upload first; drag-drop on top; clipboard paste later (v0.2) | Drag-drop reliability issues block adoption |
 | FastAPI startup overhead noticeable on cold launch | Lazy-load OCR + detectors after the server is bound | Cold-start latency exceeds the 3 s end-to-end budget (NFR-1.1) |
@@ -393,7 +405,6 @@ in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
 
 ## Open Questions
 
-- Which OCR engine becomes the default for v0.1 — Tesseract (broadest support) or PaddleOCR (better accuracy)? *(TODO)*
 - Do we lock to a single Python version or support a window? *(TODO)*
 - Should the v0.1 default policy be "strict" or "lenient"? *(TODO)*
 - When does it make sense to add a thin Rust performance core behind the Python facade? *(TODO)*
