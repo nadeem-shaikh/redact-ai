@@ -75,11 +75,12 @@ require violating one of them, stop and ask the human reviewer.
 - **No telemetry of user content.** The binary contains no
   telemetry endpoints. There is no opt-in switch for v0.1.
 
-The technology picks (Python 3.11+, PaddleOCR default, Tesseract
-opt-in via extras, FastAPI + Uvicorn, Pydantic v2, JSON policies,
-strict default policy) are recorded inline in `TECHNICAL_DESIGN_v0.1.md`
-§4. Do not re-litigate them; do not introduce a new ADR to record
-them.
+Most technology picks (Python 3.11+, FastAPI + Uvicorn, Pydantic
+v2, JSON policies, strict default policy) are recorded inline in
+[`TECHNICAL_DESIGN_v0.1.md`](./TECHNICAL_DESIGN_v0.1.md) §4. The
+PaddleOCR-default / Tesseract-opt-in pick is recorded in
+[ADR-008](./DECISIONS.md). Do not re-litigate any of these; do
+not introduce a new ADR for the inline picks.
 
 ---
 
@@ -238,13 +239,22 @@ Goal: the system can produce a redacted image and a manifest.
 - The pixel-zero post-condition holds for every redacted region
   on every TC fixture (FR-4.5).
 - The reporter's canonical form sorts findings and warnings as
-  TDD §9.2 specifies, excludes `created_at`, and includes
-  `input_hash` and `runtime_version`.
+  TDD §9.2 specifies, **includes** `policy_id`, `policy_version`,
+  `input_hash`, `stats`, `findings`, `warnings`, and **excludes**
+  `created_at` (wall-clock) and `runtime_version` (build identity).
+  Both excluded fields remain on the persisted manifest as
+  metadata; only the canonical-form hash drops them.
 - DT-001 passes: replaying the same captured `Document` through
   Detectors → Redactor → Reporter twice yields byte-identical
   `output_image.bytes` and identical canonical-form hashes.
 - A non-verbose run produces a manifest with no `matched_text`
   populated; a verbose run populates it.
+- A unit test under `tests/unit/test_redactor_block.py` round-trips
+  a synthetic JPEG and a synthetic WebP fixture through
+  `BlockRedactor` and asserts the per-pixel ≤ 8 LSB tolerance from
+  TDD §8.1. The TC-001..TC-010 inputs are all PNG per §5, so
+  without this dedicated unit test the lossy-format branch of
+  the redactor's post-condition would not be exercised.
 
 ### M5 — Local web server and drag-drop UI
 
