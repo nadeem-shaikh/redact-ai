@@ -164,6 +164,34 @@ Locale: **`en-US` only in v0.1**.
   avoid generic matches; variant findings are emitted at `medium`
   confidence.
 
+### ID-007 — Face photo detector (vision)
+
+- **Approach:** OpenCV Haar cascade (`haarcascade_frontalface_default.xml`)
+  applied to the ingested `original` image. Profile photos, avatars,
+  and similar headshots that leak identity are redacted alongside
+  text-based PII (ADR-012). This is a *vision* detector and consumes
+  the raw image, not OCR output, so it lives under
+  `pipeline/detect/vision/` and is dispatched via a separate
+  `VISION_REGISTRY`.
+- **Engine:** `opencv-python-headless`'s bundled
+  `haarcascade_frontalface_default.xml`. No additional model download.
+- **Match rule:** Run `detectMultiScale` with
+  `scaleFactor=1.1`, `minNeighbors=5`, and a minimum face size of
+  4 % of the short image side. All three knobs are overridable via
+  policy `overrides.scale_factor`, `min_neighbors`, and
+  `min_size_fraction` for users who need to bias toward recall or
+  precision.
+- **Confidence:** `MEDIUM` (Haar gives no per-detection score; the
+  `min_neighbors` gate is the implicit confidence filter).
+- **Bbox:** Returned in original input pixel coordinates so the
+  redactor masks the same region the user uploaded.
+- **Determinism:** Haar cascades are pure C++ with no stochastic
+  components — bit-deterministic for a fixed input (NFR-2.3).
+- **Limitations:** Frontal faces only. Profile-view, heavily
+  occluded, or very small faces are missed. The trigger to swap
+  this for a heavier detector (MediaPipe / YOLO-face) is corpus
+  face-recall < 90 %.
+
 ---
 
 ## CONTACT
@@ -389,6 +417,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "ID-004": PassportDetector,
     "ID-005": DriverLicenceDetector,
     "ID-006": PersonNameNerDetector,
+    # ID-007 lives in VISION_REGISTRY (vision detector); see ADR-012.
     "CO-001": EmailDetector,
     "CO-002": PhoneDetector,
     "CO-003": PostalAddressDetector,

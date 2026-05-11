@@ -31,6 +31,10 @@ dependencies = [
     "pyyaml==6.0.2",
     "python-multipart==0.0.19",
     "spacy==3.7.5",
+    # opencv-python-headless ships the Haar face cascade used by ID-007
+    # (ADR-012). The "headless" wheel drops GUI deps that we don't need
+    # on a server-side redaction pipeline.
+    "opencv-python-headless==4.10.0.84",
     # The en_core_web_md model wheel is fetched at install time so
     # `pip install redact-ai` is the only step a user needs (ADR-011).
     # Pinned to the spaCy 3.7-compatible release; bump in lockstep with
@@ -128,7 +132,7 @@ files = ["src"]
 exclude = ["tests/golden/_generate.py"]
 
 [[tool.mypy.overrides]]
-module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*"]
+module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*", "cv2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
