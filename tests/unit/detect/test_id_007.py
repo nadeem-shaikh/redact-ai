@@ -12,6 +12,13 @@ pytest.importorskip("cv2")
 
 from redact_ai.pipeline.detect.vision.face import FacePhotoDetector  # noqa: E402
 
+# NOTE: a positive face-detection test (real photographic fixture
+# → at least one detection) is intentionally absent in v0.1.
+# Adding it requires a license-cleared face image committed to the
+# repo; license review is a separate task. Until then ID-007
+# regression coverage comes from negative paths below + the
+# integration / golden suite. Tracked as follow-up to ADR-012.
+
 
 def _blank(
     width: int = 800, height: int = 600, color: tuple[int, int, int] = (220, 220, 220)
@@ -110,3 +117,34 @@ def test_missing_cascade_raises_policy_error() -> None:
     )
     with pytest.raises(RedactError):
         FacePhotoDetector().detect(_blank(), overridden)
+
+
+def test_pipeline_escalates_when_all_vision_detectors_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If every enabled vision detector errors, `_run_vision_detectors`
+    raises a `detector_error` rather than silently dropping findings
+    (ADR-005, mirrors the text-detector branch)."""
+    from redact_ai.pipeline import _run_vision_detectors
+    from redact_ai.pipeline.detect import registry
+    from redact_ai.pipeline.ingest import ingest_bytes
+
+    class _AlwaysFailFace:
+        rule_id = "ID-007"
+        category = "IDENTITY"
+
+        def detect(self, image, policy):  # type: ignore[no-untyped-def]
+            raise RuntimeError("boom")
+
+    monkeypatch.setitem(registry.VISION_REGISTRY, "ID-007", _AlwaysFailFace)
+
+    # Build a minimal in-memory PNG so we can call the real ingest stage.
+    import io
+
+    buf = io.BytesIO()
+    _blank(64, 64).save(buf, format="PNG")
+    ingested = ingest_bytes(buf.getvalue(), "image/png")
+
+    warnings: list = []
+    with pytest.raises(RedactError):
+        _run_vision_detectors(ingested, load_default_policy(), warnings)

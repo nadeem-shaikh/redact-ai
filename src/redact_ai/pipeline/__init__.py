@@ -165,12 +165,14 @@ def _run_vision_detectors(
         return []
     out: list[Finding] = []
     partial_failure_already_warned = any(w.code == "W_DETECTOR_PARTIAL_FAILURE" for w in warnings)
-    failed = False
+    errors: list[str] = []
+    succeeded = 0
     for detector in detectors:
         try:
             out.extend(detector.detect(ingested.original, policy))
+            succeeded += 1
         except Exception as exc:
-            failed = True
+            errors.append(f"{detector.rule_id}: {exc}")
             log.warning(
                 "detector_failed",
                 extra={
@@ -178,7 +180,11 @@ def _run_vision_detectors(
                     "fields": {"rule_id": detector.rule_id, "error": str(exc)},
                 },
             )
-    if failed and not partial_failure_already_warned:
+    # ADR-005 fail-closed: if every enabled vision detector errored, raise
+    # rather than silently dropping all vision findings.
+    if errors and succeeded == 0:
+        raise detector_error("; ".join(errors))
+    if errors and not partial_failure_already_warned:
         warnings.append(
             Warning(
                 code="W_DETECTOR_PARTIAL_FAILURE",
