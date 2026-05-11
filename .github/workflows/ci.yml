@@ -15,8 +15,13 @@ concurrency:
 
 jobs:
   quality:
+    # macOS jobs are informational: NFR-7.1 lists macOS as a "SHOULD"
+    # target, and the v0.1 DoD only requires Linux py3.11+3.12. Tesseract
+    # output can vary by platform; the macOS lane surfaces that signal
+    # without blocking PR merges.
     name: lint + types + tests (py${{ matrix.python }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +40,11 @@ jobs:
       - name: Install Tesseract (macOS)
         if: runner.os == 'macOS'
         run: brew install tesseract
+
+      - name: Probe Tesseract install
+        run: |
+          tesseract --version
+          tesseract --list-langs
 
       - name: Set up Python
         uses: actions/setup-python@v5
