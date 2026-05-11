@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "redact-ai"
+version = "0.1.0"
+description = "Privacy-first preprocessing layer that detects and masks sensitive content in images before they reach an LLM."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "redact-ai contributors" }]
+keywords = ["privacy", "pii", "redaction", "ocr", "screenshot"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Multimedia :: Graphics",
+]
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.32.1",
+    "pillow==11.0.0",
+    "pytesseract==0.3.13",
+    "pydantic==2.10.3",
+    "pydantic-settings==2.7.0",
+    "pyyaml==6.0.2",
+    "python-multipart==0.0.19",
+]
+
+[project.optional-dependencies]
+ocr-paddle = [
+    "paddleocr==2.9.1",
+    "paddlepaddle==2.6.2",
+]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+    "hypothesis==6.122.3",
+    "ruff==0.8.4",
+    "mypy==1.13.0",
+    "httpx==0.28.1",
+    "types-pyyaml==6.0.12.20240917",
+]
+
+[project.scripts]
+redact-ai = "redact_ai.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/nadeem-shaikh/redact-ai"
+Repository = "https://github.com/nadeem-shaikh/redact-ai"
+Issues = "https://github.com/nadeem-shaikh/redact-ai/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/redact_ai"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/redact_ai",
+    "examples/default_policy.yaml",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["docs", "assets"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "C4",
+    "RUF",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "RUF013"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_unreachable = true
+show_error_codes = true
+files = ["src"]
+exclude = ["tests/golden/_generate.py"]
+
+[[tool.mypy.overrides]]
+module = ["pytesseract.*", "PIL.*", "yaml.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:pkg_resources.*",
+]
+
+[tool.coverage.run]
+source = ["redact_ai"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

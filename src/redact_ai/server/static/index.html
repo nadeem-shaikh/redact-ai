@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="{{ csrf_meta_name }}" content="{{ csrf_token }}" />
+    <title>redact-ai — drop a screenshot</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>redact-ai</h1>
+      <p class="tagline">Redact before you prompt. Everything runs on your machine.</p>
+    </header>
+
+    <main>
+      <section
+        id="drop-zone"
+        class="drop-zone"
+        role="button"
+        tabindex="0"
+        aria-label="Drop a screenshot here, or press Enter to choose a file"
+      >
+        <p id="drop-zone-message">Drop a screenshot here, or click to choose a file.</p>
+        <input
+          id="file-input"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          aria-label="Choose a screenshot"
+        />
+      </section>
+
+      <section class="controls">
+        <label for="style-select">Redaction style</label>
+        <select id="style-select" aria-label="Redaction style">
+          <option value="">Default (block)</option>
+          <option value="block">Block</option>
+          <option value="pixelate">Pixelate</option>
+          <option value="label">Label</option>
+        </select>
+        <button id="submit-button" type="button" disabled>Redact</button>
+      </section>
+
+      <section
+        id="status"
+        class="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></section>
+
+      <section id="result" class="result" hidden>
+        <div class="result-grid">
+          <figure>
+            <figcaption>Original</figcaption>
+            <img id="preview-original" alt="Original screenshot preview" />
+          </figure>
+          <figure>
+            <figcaption>Redacted</figcaption>
+            <img id="preview-redacted" alt="Redacted screenshot preview" />
+          </figure>
+        </div>
+        <div class="actions">
+          <a id="download-link" class="button" download="redacted.png">Download redacted image</a>
+          <button id="copy-image" type="button">Copy image</button>
+          <button id="download-manifest" type="button">Download manifest</button>
+        </div>
+        <details id="manifest-details">
+          <summary>Show manifest</summary>
+          <pre id="manifest-preview"></pre>
+        </details>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        No telemetry. No network calls. Everything is processed locally on
+        <code>127.0.0.1</code>.
+      </p>
+    </footer>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
