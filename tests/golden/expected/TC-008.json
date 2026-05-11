@@ -1,0 +1,6 @@
+{
+  "rule_ids_required": ["ID-001", "CO-003"],
+  "by_category_min": {"IDENTITY": 1, "CONTACT": 1},
+  "min_total": 2,
+  "warnings_forbidden": ["W_DETECTOR_PARTIAL_FAILURE"]
+}

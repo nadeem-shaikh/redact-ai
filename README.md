@@ -6,11 +6,31 @@ A privacy-first preprocessing layer that detects and masks sensitive
 information in **images, screenshots, and documents** before they are
 sent to ChatGPT, Claude, Gemini, or any other LLM.
 
-> Status: **v0.1 — documentation phase.** Implementation begins next.
-> The v0.1 user surface is a **local web UI** (Python server on
-> `127.0.0.1` + drag-and-drop page); see
-> [ADR-007](./docs/DECISIONS.md). All processing runs on-device by
-> default — see [ADR-002](./docs/DECISIONS.md).
+> Status: **v0.1 MVP.** Local web UI runs on `127.0.0.1` and never
+> calls the network. See [ADR-007](./docs/DECISIONS.md) for the surface
+> decision and [ADR-002](./docs/DECISIONS.md) for the local-first
+> guarantee.
+
+## Quick start
+
+1. **Install Tesseract 5+** for your platform
+   (`brew install tesseract`, `apt-get install tesseract-ocr`, or
+   `choco install tesseract`). Python 3.11 or 3.12 required.
+2. **Install redact-ai:**
+   ```bash
+   pipx install redact-ai           # end users
+   uv sync --extra dev              # contributors (from a checkout)
+   ```
+3. **Run:**
+   ```bash
+   redact-ai                        # opens http://127.0.0.1:<port>
+   ```
+4. **Drop a screenshot** onto the page. The redacted image plus a
+   summary appears in the same window.
+5. **Click "Download redacted image"** to save the safe copy; click
+   **"Download manifest"** for the JSON audit trail.
+
+Everything runs on your device. No telemetry, no outbound calls.
 
 ---
 
@@ -276,6 +296,8 @@ Full threat model and risk register:
 | [TECH_STACK_OPTIONS_v0.1.md](./docs/TECH_STACK_OPTIONS_v0.1.md) | Stack comparison + recommendation |
 | [TECHNICAL_DESIGN_v0.1.md](./docs/TECHNICAL_DESIGN_v0.1.md) | MVP implementation blueprint (TDD) |
 | [MVP_BUILD_SPEC_v0.1.md](./docs/MVP_BUILD_SPEC_v0.1.md) | Agent-executable build brief (milestones, gates, do-nots) |
+| [BUILD_SPEC_v0.1.md](./docs/BUILD_SPEC_v0.1.md) | Implementation spec: layout, deps, schemas, build/run |
+| [DETECTORS_v0.1.md](./docs/DETECTORS_v0.1.md) | Per-rule regex / heuristic specifications |
 | [DECISIONS.md](./docs/DECISIONS.md) | Architecture Decision Log (ADR) |
 | [ROADMAP.md](./docs/ROADMAP.md) | Milestones and release plan |
 | [CONTRIBUTING.md](./docs/CONTRIBUTING.md) | How to contribute |
