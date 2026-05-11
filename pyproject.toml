@@ -31,6 +31,15 @@ dependencies = [
     "pyyaml==6.0.2",
     "python-multipart==0.0.19",
     "spacy==3.7.5",
+    # opencv-python-headless ships the Haar face cascade used by ID-007
+    # (ADR-012). The "headless" wheel drops GUI deps that we don't need
+    # on a server-side redaction pipeline.
+    "opencv-python-headless==4.10.0.84",
+    # The en_core_web_md model wheel is fetched at install time so
+    # `pip install redact-ai` is the only step a user needs (ADR-011).
+    # Pinned to the spaCy 3.7-compatible release; bump in lockstep with
+    # the `spacy` pin above.
+    "en-core-web-md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl#sha256=6a0f857a2b4d219c6fa17d455f82430b365bf53171a2d919b9376e5dc9be032e",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +64,14 @@ redact-ai = "redact_ai.__main__:main"
 Homepage = "https://github.com/nadeem-shaikh/redact-ai"
 Repository = "https://github.com/nadeem-shaikh/redact-ai"
 Issues = "https://github.com/nadeem-shaikh/redact-ai/issues"
+
+[tool.hatch.metadata]
+# `en-core-web-md` is a direct-URL dependency (ADR-011); hatchling
+# refuses these by default because PyPI rejects them in published
+# packages. v0.1 distribution is via clone / git / uv, so the
+# override is safe here. When v0.2 ships to PyPI this flag is
+# removed and the model is vendored or first-run-fetched instead.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/redact_ai"]
@@ -115,7 +132,7 @@ files = ["src"]
 exclude = ["tests/golden/_generate.py"]
 
 [[tool.mypy.overrides]]
-module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*"]
+module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*", "cv2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

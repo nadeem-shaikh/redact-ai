@@ -271,14 +271,17 @@ Entry template:
 - **Decision:** Add a new IDENTITY detector **ID-006
   PersonNameNerDetector** that runs spaCy NER on every OCR line and
   emits a finding for every `PERSON` entity. `spacy==3.7.5` joins the
-  required dependency set; `en_core_web_md` is a one-time
-  post-install download (the small model is rejected because it
-  requires sentential context that OCR rarely provides — a bare
-  "Nadeem Shaikh" on a screenshot line is missed by `_sm` and caught
-  by `_md`). ID-006 is enabled by default in the strict policy at
-  `threshold: medium`. ID-001 is retained unchanged as a precision
-  layer; both detectors can co-fire on the same span and the merge
-  stage de-duplicates within IDENTITY.
+  required dependency set, and the `en_core_web_md` model wheel is
+  declared as a PEP 508 direct-URL dependency in
+  [`pyproject.toml`](../pyproject.toml) so `pip install` / `uv sync`
+  / `pipx install` pulls it automatically — no separate
+  `python -m spacy download` step is required (the small model is
+  rejected because it needs sentential context that OCR rarely
+  provides — a bare "Nadeem Shaikh" on a screenshot line is missed
+  by `_sm` and caught by `_md`). ID-006 is enabled by default in
+  the strict policy at `threshold: medium`. ID-001 is retained
+  unchanged as a precision layer; both detectors can co-fire on the
+  same span and the merge stage de-duplicates within IDENTITY.
 - **Consequences:**
   - Default install footprint grows by ~100 MB (spaCy library
     ~50 MB + `en_core_web_md` weights ~50 MB), staying well under
@@ -292,8 +295,16 @@ Entry template:
     end-to-end budget (NFR-1.1) is preserved for steady-state
     requests.
   - Local-first (ADR-002, NFR-3.1) preserved: the model runs
-    entirely on-device. The one-time `spacy download` is an
-    install-time fetch, not a runtime call.
+    entirely on-device. The model wheel is fetched at
+    `pip install` / `uv sync` time as a normal dependency, not at
+    runtime — no network call ever occurs during a redaction
+    operation.
+  - PyPI distribution caveat: direct-URL deps work transparently
+    for installs from a git clone, `pipx install git+...`, or
+    `uv sync` from a checkout. If/when `redact-ai` is published to
+    PyPI, the install mechanism is revisited (vendoring the model
+    into the wheel, or moving to a first-run consent prompt with an
+    ADR-002 amendment).
   - Determinism (NFR-2.3) preserved: spaCy NER uses greedy
     decoding and is deterministic for a fixed model version and
     input.
@@ -311,6 +322,63 @@ Entry template:
     transformer-based NER on the curated corpus, this ADR is
     revisited and a transformer model (e.g. `en_core_web_trf`)
     becomes the default.
+
+---
+
+## ADR-012 — Add face detection as ID-007, splitting detect into text + vision branches
+
+- **Date:** 2026-05-11
+- **Status:** Accepted
+- **Context:** The v0.1 detect stage operates exclusively on OCR
+  output (text tokens with bboxes). The user's reference screenshot
+  is a GitHub profile page with a circular headshot in the upper
+  left; on a freshly-merged pipeline `Nadeem Shaikh` redacts
+  correctly via ID-006 but the avatar itself remains visible
+  because no detector consumes pixel data. A privacy tool that
+  promises to redact identity-leaking content but leaves the user's
+  face untouched fails the product's core promise as starkly as
+  missing a name. The original design (see ADR-004 and the LO-002
+  "image-based detection deferred" note in
+  [`DETECTORS_v0.1.md`](./DETECTORS_v0.1.md)) deferred image-content
+  detection to a future release; this ADR reverses that deferral
+  for the face-photo case.
+- **Decision:** Introduce a new rule **ID-007
+  FacePhotoDetector** under the `IDENTITY` category. It runs
+  OpenCV's frontal-face Haar cascade
+  (`haarcascade_frontalface_default.xml`) against the
+  ingest-stage `original` image and emits one finding per face in
+  input pixel coordinates. The detect stage gains a parallel
+  *vision* branch:
+  - `pipeline.detect.registry.REGISTRY` keeps the existing
+    OCR-text detectors.
+  - A new `VISION_REGISTRY` maps pixel-domain rule IDs to detector
+    classes.
+  - The pipeline orchestrator runs both branches and concatenates
+    findings before the merge stage (which already dedupes
+    overlapping bboxes within a category).
+
+  `opencv-python-headless==4.10.0.84` joins the required
+  dependencies. ID-007 is enabled by default in the strict policy
+  at `threshold: medium`. Findings carry no `matched_text` (image
+  regions, not text spans) which is consistent with ADR-006's
+  manifest-safety stance.
+- **Consequences:**
+  - Default install footprint grows by ~30 MB
+    (opencv-python-headless), staying well under NFR-1.2's 1 GB
+    ceiling and ADR-008's PaddleOCR precedent.
+  - Frontal-face cascade is fast (~50 ms on a 1080p screenshot)
+    and entirely on-device; ADR-002 and NFR-3.1 preserved.
+  - Deterministic per NFR-2.3 — Haar cascades are pure C++ with
+    no stochastic components.
+  - Known limitation: profile-view and heavily-occluded faces are
+    missed. The "Trigger to revisit" is a corpus-wide face-recall
+    benchmark dropping below 90 %; in that case the alternatives
+    are MediaPipe Face Detection (~20 MB, better at angles) or a
+    YOLO-family face model.
+  - Supersedes the "LO-002 image-based detection deferred" note
+    in [`DETECTORS_v0.1.md`](./DETECTORS_v0.1.md) for the
+    face-photo case only. LO-002 (vehicle plates) and other
+    image-content detectors remain deferred.
 
 ---
 

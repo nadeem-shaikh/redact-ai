@@ -375,8 +375,11 @@ class DriverLicenceDetector:
 
 _DEFAULT_NER_MODEL = "en_core_web_md"
 _NER_MODEL_INSTALL_HINT = (
-    "Run `python -m spacy download en_core_web_md` once after install. "
-    "See ADR-011 in docs/DECISIONS.md."
+    "The model is normally pulled at install time (ADR-011). "
+    "If it has been removed from the environment, reinstall redact-ai "
+    "or install the matching wheel: "
+    "https://github.com/explosion/spacy-models/releases/download/"
+    "en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl"
 )
 
 
@@ -400,12 +403,45 @@ def _load_spacy_ner(model_name: str) -> Any:
     return nlp
 
 
+_MIN_VARIANT_LEN = 5
+
+
+def _name_variants(name: str) -> set[str]:
+    """Derive slug-style variants of a detected PERSON name.
+
+    Catches GitHub-style usernames, email locals, and similar handles
+    that share the same identity as a NER-detected full name but
+    aren't recognised by NER themselves (lowercase, hyphenated,
+    concatenated, or just the first/last name in isolation —
+    e.g. ``nadeem/redact-ai`` or ``shaikh/redact-ai``).
+    Variants below ``_MIN_VARIANT_LEN`` characters are excluded to
+    avoid generic false positives (e.g. one-letter initials, common
+    short words).
+    """
+    parts = [p for p in re.split(r"[\s'\-_.]+", name.lower()) if p]
+    if not parts:
+        return set()
+    out: set[str] = set(parts)  # First name, last name, and any middle parts alone.
+    for sep in ("-", "_", ".", ""):
+        out.add(sep.join(parts))
+    if len(parts) >= 2:
+        initial = parts[0][:1]
+        last = parts[-1]
+        for sep in ("", ".", "-", "_"):
+            out.add(f"{initial}{sep}{last}")
+            out.add(f"{last}{sep}{initial}")
+    return {v for v in out if len(v) >= _MIN_VARIANT_LEN}
+
+
 class PersonNameNerDetector:
     """ID-006 — statistical NER for personal names (PERSON entities).
 
     Complements ID-001 by catching names absent from the bundled
     given/family dictionaries (non-Western names, novel spellings).
-    Runs entirely on-device via spaCy (ADR-002, ADR-011).
+    Also redacts slug-style variants of detected names (e.g. a GitHub
+    username ``nadeem-shaikh`` after ``Nadeem Shaikh`` is detected on
+    the same page) since they carry the same identity. Runs entirely
+    on-device via spaCy (ADR-002, ADR-011).
     """
 
     rule_id: ClassVar[str] = "ID-006"
@@ -426,6 +462,7 @@ class PersonNameNerDetector:
         except RuntimeError as exc:
             raise policy_error(policy.id, str(exc)) from exc
         out: list[Finding] = []
+        detected_names: set[str] = set()
         for page in doc.pages:
             for block in page.blocks:
                 for line in block.lines:
@@ -448,6 +485,43 @@ class PersonNameNerDetector:
                                 bbox=union_bboxes(t.bbox for t in covered),
                                 confidence=cap_confidence(detector_conf, ocr_conf),
                                 matched_text=ent.text,
+                                page_index=page.index,
+                            )
+                        )
+                        detected_names.add(ent.text)
+        out.extend(self._scan_variants(doc, detected_names))
+        return out
+
+    def _scan_variants(self, doc: Document, names: set[str]) -> list[Finding]:
+        variants: set[str] = set()
+        for name in names:
+            variants.update(_name_variants(name))
+        if not variants:
+            return []
+        # Sort by length desc so longer variants match first under alternation.
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])(?:"
+            + "|".join(re.escape(v) for v in sorted(variants, key=len, reverse=True))
+            + r")(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        )
+        out: list[Finding] = []
+        for page in doc.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    text, spans = line_text_and_offsets(line)
+                    for match in pattern.finditer(text):
+                        covered = tokens_covering(spans, *match.span())
+                        if not covered:
+                            continue
+                        ocr_conf = confidence_from_tokens(covered)
+                        out.append(
+                            Finding(
+                                rule_id=self.rule_id,
+                                category=self.category,
+                                bbox=union_bboxes(t.bbox for t in covered),
+                                confidence=cap_confidence("medium", ocr_conf),
+                                matched_text=match.group(0),
                                 page_index=page.index,
                             )
                         )

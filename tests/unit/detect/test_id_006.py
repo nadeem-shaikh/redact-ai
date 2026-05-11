@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from redact_ai.errors import RedactError
-from redact_ai.pipeline.detect.identity import PersonNameNerDetector
+from redact_ai.pipeline.detect.identity import PersonNameNerDetector, _name_variants
 from redact_ai.policy.loader import load_default_policy
 from tests.unit.detect._helpers import make_doc
 
@@ -52,6 +52,61 @@ def test_two_token_name_is_high_confidence() -> None:
 def test_no_person_no_finding() -> None:
     _require_en_core_web_md()
     doc = make_doc(["The quick brown fox jumps over the lazy dog"])
+    out = PersonNameNerDetector().detect(doc, load_default_policy())
+    assert out == []
+
+
+def test_name_variants_includes_github_username_form() -> None:
+    """The motivating screenshot had `nadeem-shaikh` appear in repo paths."""
+    variants = _name_variants("Nadeem Shaikh")
+    assert "nadeem-shaikh" in variants
+    assert "nadeem_shaikh" in variants
+    assert "nadeem.shaikh" in variants
+    assert "nadeemshaikh" in variants
+    # First-initial + last forms should also be there.
+    assert "nshaikh" in variants
+    # Standalone first/last name forms (e.g. `nadeem/redact-ai`).
+    assert "nadeem" in variants
+    assert "shaikh" in variants
+
+
+def test_name_variants_skip_too_short() -> None:
+    """Variants shorter than `_MIN_VARIANT_LEN` are excluded as too generic."""
+    variants = _name_variants("A B")
+    assert variants == set(), variants
+
+
+def test_variant_match_catches_repo_paths() -> None:
+    """`nadeem-shaikh/redact-ai`, `nadeem/redact-ai`, and `shaikh/redact-ai`
+    should all be redacted once `Nadeem Shaikh` is detected."""
+    _require_en_core_web_md()
+    doc = make_doc(
+        [
+            "Nadeem Shaikh",
+            "nadeem-shaikh/scripts",
+            "nadeem-shaikh/redact-ai",
+            "nadeem/redact-ai",
+            "shaikh/redact-ai",
+            "Across-Finance/pools",
+        ]
+    )
+    out = PersonNameNerDetector().detect(doc, load_default_policy())
+    matched_lower = {f.matched_text.lower() for f in out}
+    # Primary NER hit on the full name.
+    assert any("nadeem" in m and "shaikh" in m for m in matched_lower), matched_lower
+    # Combined slug form.
+    assert "nadeem-shaikh" in matched_lower, matched_lower
+    # Standalone first / last name forms.
+    assert "nadeem" in matched_lower, matched_lower
+    assert "shaikh" in matched_lower, matched_lower
+    # Untouched: an unrelated org name.
+    assert not any("across-finance" in m for m in matched_lower), matched_lower
+
+
+def test_variant_match_skipped_when_no_person_detected() -> None:
+    """Without a detected PERSON, variant scanning emits nothing (no anchor)."""
+    _require_en_core_web_md()
+    doc = make_doc(["random-slug-string/some-repo", "another-org/another-repo"])
     out = PersonNameNerDetector().detect(doc, load_default_policy())
     assert out == []
 

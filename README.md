@@ -16,41 +16,20 @@ sent to ChatGPT, Claude, Gemini, or any other LLM.
 1. **Install Tesseract 5+** for your platform
    (`brew install tesseract`, `apt-get install tesseract-ocr`, or
    `choco install tesseract`). Python 3.11 or 3.12 required.
-2. **Install redact-ai:**
+2. **Install redact-ai** — the spaCy NER model used by ID-006 is
+   pulled automatically as a dependency (see
+   [ADR-011](./docs/DECISIONS.md); adds ~50 MB):
    ```bash
    pipx install redact-ai           # end users
    uv sync --extra dev              # contributors (from a checkout)
    ```
-3. **Install the spaCy NER model** used by ID-006 (one-time, ~50 MB —
-   see [ADR-011](./docs/DECISIONS.md)). The command depends on how you
-   installed `redact-ai`, because the model must land in the same
-   environment as the app:
-
-   - **pipx users:**
-     ```bash
-     pipx runpip redact-ai install \
-       https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl
-     ```
-   - **Contributors (uv sync):**
-     ```bash
-     uv pip install --no-deps \
-       https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl
-     ```
-   - **Plain `pip install` in the active venv:**
-     ```bash
-     python -m spacy download en_core_web_md
-     ```
-
-   Adjust the wheel version to match the installed spaCy release;
-   compatibility is documented at
-   <https://github.com/explosion/spacy-models/releases>.
-4. **Run:**
+3. **Run:**
    ```bash
    redact-ai                        # opens http://127.0.0.1:<port>
    ```
-5. **Drop a screenshot** onto the page. The redacted image plus a
+4. **Drop a screenshot** onto the page. The redacted image plus a
    summary appears in the same window.
-6. **Click "Download redacted image"** to save the safe copy; click
+5. **Click "Download redacted image"** to save the safe copy; click
    **"Download manifest"** for the JSON audit trail.
 
 Everything runs on your device. No telemetry, no outbound calls.

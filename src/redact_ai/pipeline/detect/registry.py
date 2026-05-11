@@ -1,7 +1,8 @@
 """Detector registry (DETECTORS_v0.1 §Registry).
 
-LO-002 (vehicle plates) is intentionally absent — image-content
-detection is deferred to a future release.
+ID-007 (face photos) ships in v0.1 per ADR-012. LO-002 (vehicle
+plates) remains absent — that specific image-content detector is
+still deferred.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ from redact_ai.pipeline.detect.identity import (
     PersonNameNerDetector,
 )
 from redact_ai.pipeline.detect.location import GpsCoordsDetector
+from redact_ai.pipeline.detect.vision import VisionDetector
+from redact_ai.pipeline.detect.vision.face import FacePhotoDetector
 from redact_ai.policy.schema import Policy
 
 REGISTRY: dict[str, type[Detector]] = {
@@ -65,16 +68,35 @@ REGISTRY: dict[str, type[Detector]] = {
     "CU-001": CustomRegexDetector,
 }
 
+VISION_REGISTRY: dict[str, type[VisionDetector]] = {
+    "ID-007": FacePhotoDetector,
+}
+
 
 def build_detectors(policy: Policy) -> list[Detector]:
-    """Instantiate one detector per enabled policy entry.
+    """Instantiate one text detector per enabled policy entry.
 
-    Unknown rule IDs raise :class:`E_POLICY` (BUILD_SPEC §6.2).
+    Unknown rule IDs raise :class:`E_POLICY` (BUILD_SPEC §6.2). Vision
+    rule IDs (those in :data:`VISION_REGISTRY`) are skipped here — the
+    pipeline orchestrator builds them via :func:`build_vision_detectors`.
     """
     out: list[Detector] = []
     for ref in policy.enabled_detectors():
+        if ref.id in VISION_REGISTRY:
+            continue
         cls = REGISTRY.get(ref.id)
         if cls is None:
             raise policy_error(policy.id, f"unknown detector rule id: {ref.id}")
+        out.append(cls())
+    return out
+
+
+def build_vision_detectors(policy: Policy) -> list[VisionDetector]:
+    """Instantiate one vision detector per enabled policy entry."""
+    out: list[VisionDetector] = []
+    for ref in policy.enabled_detectors():
+        cls = VISION_REGISTRY.get(ref.id)
+        if cls is None:
+            continue
         out.append(cls())
     return out

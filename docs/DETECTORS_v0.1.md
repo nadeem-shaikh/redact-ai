@@ -137,15 +137,60 @@ Locale: **`en-US` only in v0.1**.
   for a fixed model version and input (NFR-2.3). The runtime pins
   `spacy==3.7.5`; the `en_core_web_md` version installed by the
   user is recorded in the manifest header for reproducibility.
-- **Install:** `spacy` is a required dependency; the model is a
-  one-time download (`python -m spacy download en_core_web_md`).
-  If the model is missing at runtime, the detector raises
-  `E_POLICY` with a clear hint (consistent with ADR-005
-  fail-closed semantics).
+- **Install:** Both `spacy` and the `en_core_web_md` model wheel are
+  declared as required dependencies of `redact-ai`. `pip install`,
+  `uv sync`, and `pipx install` pull both automatically (ADR-011).
+  If the model is missing at runtime (manual environment surgery),
+  the detector raises `E_POLICY` with a clear hint, consistent with
+  ADR-005 fail-closed semantics.
 - **Trade-off:** ID-001 (dictionary) and ID-006 (NER) can both fire
   on the same span. The merge stage already de-duplicates
   overlapping findings within a category, so the user sees one
   redaction per span; the manifest records both rule IDs for audit.
+- **Variant scanning:** after the NER pass, ID-006 derives slug-style
+  variants of every detected `PERSON` and re-scans the document for
+  them. Generated forms include:
+  - Combined slug forms (`nadeem-shaikh`, `nadeem_shaikh`,
+    `nadeem.shaikh`, `nadeemshaikh`).
+  - First-initial-plus-last forms (`nshaikh`, `n-shaikh`,
+    `n.shaikh`).
+  - Standalone first and last names alone (`nadeem`, `shaikh`) so
+    that handles like `nadeem/redact-ai` or `shaikh/redact-ai` are
+    caught.
+
+  This catches GitHub-style usernames, email locals, and similar
+  handles that share the same identity but aren't recognised by NER
+  themselves. Variants shorter than 5 characters are excluded to
+  avoid generic matches; variant findings are emitted at `medium`
+  confidence.
+
+### ID-007 — Face photo detector (vision)
+
+- **Approach:** OpenCV Haar cascade (`haarcascade_frontalface_default.xml`)
+  applied to the ingested `original` image. Profile photos, avatars,
+  and similar headshots that leak identity are redacted alongside
+  text-based PII (ADR-012). This is a *vision* detector and consumes
+  the raw image, not OCR output, so it lives under
+  `pipeline/detect/vision/` and is dispatched via a separate
+  `VISION_REGISTRY`.
+- **Engine:** `opencv-python-headless`'s bundled
+  `haarcascade_frontalface_default.xml`. No additional model download.
+- **Match rule:** Run `detectMultiScale` with
+  `scaleFactor=1.1`, `minNeighbors=5`, and a minimum face size of
+  4 % of the short image side. All three knobs are overridable via
+  policy `overrides.scale_factor`, `min_neighbors`, and
+  `min_size_fraction` for users who need to bias toward recall or
+  precision.
+- **Confidence:** `MEDIUM` (Haar gives no per-detection score; the
+  `min_neighbors` gate is the implicit confidence filter).
+- **Bbox:** Returned in original input pixel coordinates so the
+  redactor masks the same region the user uploaded.
+- **Determinism:** Haar cascades are pure C++ with no stochastic
+  components — bit-deterministic for a fixed input (NFR-2.3).
+- **Limitations:** Frontal faces only. Profile-view, heavily
+  occluded, or very small faces are missed. The trigger to swap
+  this for a heavier detector (MediaPipe / YOLO-face) is corpus
+  face-recall < 90 %.
 
 ---
 
@@ -372,6 +417,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "ID-004": PassportDetector,
     "ID-005": DriverLicenceDetector,
     "ID-006": PersonNameNerDetector,
+    # ID-007 lives in VISION_REGISTRY (vision detector); see ADR-012.
     "CO-001": EmailDetector,
     "CO-002": PhoneDetector,
     "CO-003": PostalAddressDetector,

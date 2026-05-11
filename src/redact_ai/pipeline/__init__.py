@@ -25,7 +25,7 @@ from redact_ai.logging import get_logger
 from redact_ai.models.document import Document
 from redact_ai.models.findings import Confidence, Finding, confidence_ge
 from redact_ai.models.manifest import Manifest, Warning
-from redact_ai.pipeline.detect.registry import build_detectors
+from redact_ai.pipeline.detect.registry import build_detectors, build_vision_detectors
 from redact_ai.pipeline.ingest import IngestedImage, ingest_bytes
 from redact_ai.pipeline.merge import merge_findings
 from redact_ai.pipeline.ocr.base import OCRAdapter
@@ -65,6 +65,7 @@ def redact(
     ingested = ingest_bytes(image_bytes, mime_type)
     document = _run_ocr(ocr, ingested, warnings)
     findings = _run_detectors(document, policy, warnings)
+    findings.extend(_run_vision_detectors(ingested, policy, warnings))
     merged = merge_findings(findings)
     final = _apply_thresholds(merged, policy, warnings)
 
@@ -146,6 +147,44 @@ def _run_detectors(document: Document, policy: Policy, warnings: list[Warning]) 
     if errors and succeeded == 0:
         raise detector_error("; ".join(errors))
     if errors:
+        warnings.append(
+            Warning(
+                code="W_DETECTOR_PARTIAL_FAILURE",
+                message="One or more detectors errored; others ran.",
+                source="detect",
+            )
+        )
+    return out
+
+
+def _run_vision_detectors(
+    ingested: IngestedImage, policy: Policy, warnings: list[Warning]
+) -> list[Finding]:
+    detectors = build_vision_detectors(policy)
+    if not detectors:
+        return []
+    out: list[Finding] = []
+    partial_failure_already_warned = any(w.code == "W_DETECTOR_PARTIAL_FAILURE" for w in warnings)
+    errors: list[str] = []
+    succeeded = 0
+    for detector in detectors:
+        try:
+            out.extend(detector.detect(ingested.original, policy))
+            succeeded += 1
+        except Exception as exc:
+            errors.append(f"{detector.rule_id}: {exc}")
+            log.warning(
+                "detector_failed",
+                extra={
+                    "stage": "detect",
+                    "fields": {"rule_id": detector.rule_id, "error": str(exc)},
+                },
+            )
+    # ADR-005 fail-closed: if every enabled vision detector errored, raise
+    # rather than silently dropping all vision findings.
+    if errors and succeeded == 0:
+        raise detector_error("; ".join(errors))
+    if errors and not partial_failure_already_warned:
         warnings.append(
             Warning(
                 code="W_DETECTOR_PARTIAL_FAILURE",
