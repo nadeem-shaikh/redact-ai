@@ -61,6 +61,14 @@ Homepage = "https://github.com/nadeem-shaikh/redact-ai"
 Repository = "https://github.com/nadeem-shaikh/redact-ai"
 Issues = "https://github.com/nadeem-shaikh/redact-ai/issues"
 
+[tool.hatch.metadata]
+# `en-core-web-md` is a direct-URL dependency (ADR-011); hatchling
+# refuses these by default because PyPI rejects them in published
+# packages. v0.1 distribution is via clone / git / uv, so the
+# override is safe here. When v0.2 ships to PyPI this flag is
+# removed and the model is vendored or first-run-fetched instead.
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/redact_ai"]
 
