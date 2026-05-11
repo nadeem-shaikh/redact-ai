@@ -21,13 +21,18 @@ sent to ChatGPT, Claude, Gemini, or any other LLM.
    pipx install redact-ai           # end users
    uv sync --extra dev              # contributors (from a checkout)
    ```
-3. **Run:**
+3. **Download the spaCy NER model** used by ID-006 (one-time, ~50 MB —
+   see [ADR-011](./docs/DECISIONS.md)):
+   ```bash
+   python -m spacy download en_core_web_md
+   ```
+4. **Run:**
    ```bash
    redact-ai                        # opens http://127.0.0.1:<port>
    ```
-4. **Drop a screenshot** onto the page. The redacted image plus a
+5. **Drop a screenshot** onto the page. The redacted image plus a
    summary appears in the same window.
-5. **Click "Download redacted image"** to save the safe copy; click
+6. **Click "Download redacted image"** to save the safe copy; click
    **"Download manifest"** for the JSON audit trail.
 
 Everything runs on your device. No telemetry, no outbound calls.

@@ -30,6 +30,7 @@ dependencies = [
     "pydantic-settings==2.7.0",
     "pyyaml==6.0.2",
     "python-multipart==0.0.19",
+    "spacy==3.7.5",
 ]
 
 [project.optional-dependencies]
@@ -114,7 +115,7 @@ files = ["src"]
 exclude = ["tests/golden/_generate.py"]
 
 [[tool.mypy.overrides]]
-module = ["pytesseract.*", "PIL.*", "yaml.*"]
+module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

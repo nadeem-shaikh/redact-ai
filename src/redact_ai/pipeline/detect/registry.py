@@ -36,6 +36,7 @@ from redact_ai.pipeline.detect.identity import (
     FullNameDetector,
     GovernmentIdDetector,
     PassportDetector,
+    PersonNameNerDetector,
 )
 from redact_ai.pipeline.detect.location import GpsCoordsDetector
 from redact_ai.policy.schema import Policy
@@ -46,6 +47,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "ID-003": GovernmentIdDetector,
     "ID-004": PassportDetector,
     "ID-005": DriverLicenceDetector,
+    "ID-006": PersonNameNerDetector,
     "CO-001": EmailDetector,
     "CO-002": PhoneDetector,
     "CO-003": PostalAddressDetector,
