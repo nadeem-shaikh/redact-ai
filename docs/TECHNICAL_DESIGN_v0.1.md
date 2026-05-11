@@ -410,8 +410,13 @@ closes.
 from pydantic import BaseModel, ConfigDict
 
 class Box(BaseModel):
-    """Pixel-space rectangle. Coordinates are integers in the
-    coordinate system of the post-preprocessing image."""
+    """Pixel-space rectangle.
+
+    The coordinate space is contextual and MUST be documented by
+    the containing field. In v0.1: `Token.bbox` is in
+    post-preprocessing coordinates (the OCR-normalised image);
+    `Finding.bbox` is in INPUT-image coordinates after the
+    orchestrator's input-space mapping (§6.4 / API_SPEC §3.7)."""
     x: int
     y: int
     w: int
@@ -1113,11 +1118,15 @@ header (full origins, with scheme) and one for the `Host` fallback
 intended difference between the two is the `http://` prefix.
 
 ```python
-ALLOWED_ORIGINS = {
-    "http://127.0.0.1",
-    "http://localhost",
-    "http://[::1]",
-}
+# The Origin header carries scheme://host:port; entries are built at
+# server startup using the bound loopback port so they match an
+# ephemeral port (e.g. when the server is started with port=0).
+def _allowed_origins(port: int) -> frozenset[str]:
+    return frozenset({
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+        f"http://[::1]:{port}",
+    })
 
 ALLOWED_HOSTS = {
     "127.0.0.1",
@@ -1134,8 +1143,11 @@ Two allowlists are required because an `Origin` header carries
 **Decision logic:**
 
 1. If the request has an `Origin` header, normalise it (lowercase
-   host, strip a default port if present, strip a trailing slash)
-   and require membership in `ALLOWED_ORIGINS`.
+   host, strip a trailing slash) and require membership in the
+   `_allowed_origins(bound_port)` set built above. The set is
+   constructed with the actual bound loopback port so ephemeral
+   ports (e.g. `http://127.0.0.1:54321` when started with `port=0`)
+   match correctly.
 2. If `Origin` is absent — notably on top-level browser navigations
    to `GET /`, where most browsers omit `Origin` on same-origin
    GETs — normalise the `Host` header (lowercase, strip the
