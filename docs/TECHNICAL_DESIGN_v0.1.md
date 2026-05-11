@@ -134,6 +134,7 @@ risks leaking sensitive content (ADR-005, FR-8.1).
 | Package | `redact_ai` (PyPI: `redact-ai`) | None |
 | OCR engine (default) | **PaddleOCR** (`paddleocr` + `paddlepaddle`) | +0.5–1 GB install, harder Windows / arm64 CI; bought higher real-screenshot accuracy |
 | OCR engine (fallback) | Tesseract via `[ocr-tesseract]` extras | None |
+| Offline-from-first-run install | `redact-ai[bundled-paddle]` extra ships PP-OCRv4 English-mobile weights (~30 MB) inside the wheel | Adds ~30 MB to wheel; non-English users still need `prefetch-models` to fetch additional language packs |
 | Image library | Pillow (≥ 10.x) | None |
 | Web framework | FastAPI + Uvicorn | None |
 | Multipart parsing | `python-multipart` | None |
@@ -999,10 +1000,14 @@ the existing files and exits 0. Failures (network, disk, hash
 mismatch) raise `IoError` (`E_IO`) with a clear hint and exit 74
 (`EX_IOERR`).
 
-Documented as a one-time post-install step in the README. If the
-user skips it, the first `POST /redact` will trigger lazy download
-with a progress indicator on `stderr` and a manifest `Warning`
-(see §11).
+Documented as a one-time post-install step in the README. The
+default policy never initiates outbound network activity at request
+time (ADR-002); if the user skips the prefetch step **and** has not
+installed the `redact-ai[bundled-paddle]` extra (which ships the
+PP-OCRv4 English-mobile weights, ~30 MB, inside the wheel), `POST
+/redact` fails fast with `E_IO` and a hint to either run
+`redact-ai prefetch-models` or reinstall with the bundled extra.
+No lazy download happens at request time under the default policy.
 
 ### 10.4 Reserved subcommand
 
@@ -1047,11 +1052,17 @@ weights cached on disk. The TDD splits this into two phases:
   loaded and warmed up.
 
 Weights are not downloaded automatically by `pip install`. Users
-run `redact-ai prefetch-models` once to populate the local cache
-(see §10). On a cold cache, the first `POST /redact` will trigger
-download with a clear progress indicator on `stderr` and a JSON
-`Warning(source="server", code="ocr_first_run_download")` in the
-manifest.
+have two ways to populate the local cache:
+
+1. Install with the `redact-ai[bundled-paddle]` extra. This pulls
+   in the PP-OCRv4 English-mobile weights bundled inside the wheel
+   (~30 MB), so the system works offline from the first invocation.
+2. Run `redact-ai prefetch-models` once while online to download
+   the weights into the local cache (see §10).
+
+On a cold cache **and** without the bundled extra, `POST /redact`
+fails fast with `E_IO` and a clear hint — the default policy does
+not perform outbound network calls at request time (ADR-002).
 
 ---
 
