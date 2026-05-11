@@ -377,8 +377,9 @@ _DEFAULT_NER_MODEL = "en_core_web_md"
 _NER_MODEL_INSTALL_HINT = (
     "The model is normally pulled at install time (ADR-011). "
     "If it has been removed from the environment, reinstall redact-ai "
-    "or install the matching wheel from "
-    "https://github.com/explosion/spacy-models/releases."
+    "or install the matching wheel: "
+    "https://github.com/explosion/spacy-models/releases/download/"
+    "en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl"
 )
 
 
