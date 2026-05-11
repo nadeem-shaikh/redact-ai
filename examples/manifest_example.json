@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "policy_id": "default",
+  "policy_version": "0.1.0",
+  "runtime_version": "0.1.0",
+  "ocr_engine": "tesseract-5.3.4",
+  "input_hash": "9f1a3c4b8e6d1c2a7f0b9e5d8c7a6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b",
+  "output_hash": "1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+  "created_at": "2026-05-10T09:53:00Z",
+  "stats": {
+    "redactions_total": 3,
+    "by_category": {
+      "IDENTITY": 1,
+      "CONTACT": 1,
+      "FINANCIAL": 1
+    }
+  },
+  "findings": [
+    {
+      "id": "f-ID-001-0",
+      "rule_id": "ID-001",
+      "category": "IDENTITY",
+      "bbox": { "x": 48, "y": 96, "w": 184, "h": 22 },
+      "confidence": "high"
+    },
+    {
+      "id": "f-CO-003-0",
+      "rule_id": "CO-003",
+      "category": "CONTACT",
+      "bbox": { "x": 48, "y": 124, "w": 312, "h": 44 },
+      "confidence": "high"
+    },
+    {
+      "id": "f-FI-002-0",
+      "rule_id": "FI-002",
+      "category": "FINANCIAL",
+      "bbox": { "x": 120, "y": 192, "w": 296, "h": 22 },
+      "confidence": "high"
+    }
+  ],
+  "warnings": []
+}
