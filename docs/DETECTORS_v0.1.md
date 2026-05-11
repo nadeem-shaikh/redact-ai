@@ -137,11 +137,12 @@ Locale: **`en-US` only in v0.1**.
   for a fixed model version and input (NFR-2.3). The runtime pins
   `spacy==3.7.5`; the `en_core_web_md` version installed by the
   user is recorded in the manifest header for reproducibility.
-- **Install:** `spacy` is a required dependency; the model is a
-  one-time download (`python -m spacy download en_core_web_md`).
-  If the model is missing at runtime, the detector raises
-  `E_POLICY` with a clear hint (consistent with ADR-005
-  fail-closed semantics).
+- **Install:** Both `spacy` and the `en_core_web_md` model wheel are
+  declared as required dependencies of `redact-ai`. `pip install`,
+  `uv sync`, and `pipx install` pull both automatically (ADR-011).
+  If the model is missing at runtime (manual environment surgery),
+  the detector raises `E_POLICY` with a clear hint, consistent with
+  ADR-005 fail-closed semantics.
 - **Trade-off:** ID-001 (dictionary) and ID-006 (NER) can both fire
   on the same span. The merge stage already de-duplicates
   overlapping findings within a category, so the user sees one

@@ -383,6 +383,20 @@ wheels = [
 ]
 
 [[package]]
+name = "en-core-web-md"
+version = "3.7.1"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl" }
+dependencies = [
+    { name = "spacy" },
+]
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl", hash = "sha256:6a0f857a2b4d219c6fa17d455f82430b365bf53171a2d919b9376e5dc9be032e" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "spacy", specifier = ">=3.7.2,<3.8.0" }]
+
+[[package]]
 name = "fastapi"
 version = "0.115.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1349,6 +1363,7 @@ name = "redact-ai"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "en-core-web-md" },
     { name = "fastapi" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -1377,6 +1392,7 @@ ocr-paddle = [
 
 [package.metadata]
 requires-dist = [
+    { name = "en-core-web-md", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl" },
     { name = "fastapi", specifier = "==0.115.6" },
     { name = "httpx", marker = "extra == 'dev'", specifier = "==0.28.1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = "==6.122.3" },

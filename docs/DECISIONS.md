@@ -271,14 +271,17 @@ Entry template:
 - **Decision:** Add a new IDENTITY detector **ID-006
   PersonNameNerDetector** that runs spaCy NER on every OCR line and
   emits a finding for every `PERSON` entity. `spacy==3.7.5` joins the
-  required dependency set; `en_core_web_md` is a one-time
-  post-install download (the small model is rejected because it
-  requires sentential context that OCR rarely provides — a bare
-  "Nadeem Shaikh" on a screenshot line is missed by `_sm` and caught
-  by `_md`). ID-006 is enabled by default in the strict policy at
-  `threshold: medium`. ID-001 is retained unchanged as a precision
-  layer; both detectors can co-fire on the same span and the merge
-  stage de-duplicates within IDENTITY.
+  required dependency set, and the `en_core_web_md` model wheel is
+  declared as a PEP 508 direct-URL dependency in
+  [`pyproject.toml`](../pyproject.toml) so `pip install` / `uv sync`
+  / `pipx install` pulls it automatically — no separate
+  `python -m spacy download` step is required (the small model is
+  rejected because it needs sentential context that OCR rarely
+  provides — a bare "Nadeem Shaikh" on a screenshot line is missed
+  by `_sm` and caught by `_md`). ID-006 is enabled by default in
+  the strict policy at `threshold: medium`. ID-001 is retained
+  unchanged as a precision layer; both detectors can co-fire on the
+  same span and the merge stage de-duplicates within IDENTITY.
 - **Consequences:**
   - Default install footprint grows by ~100 MB (spaCy library
     ~50 MB + `en_core_web_md` weights ~50 MB), staying well under
@@ -292,8 +295,16 @@ Entry template:
     end-to-end budget (NFR-1.1) is preserved for steady-state
     requests.
   - Local-first (ADR-002, NFR-3.1) preserved: the model runs
-    entirely on-device. The one-time `spacy download` is an
-    install-time fetch, not a runtime call.
+    entirely on-device. The model wheel is fetched at
+    `pip install` / `uv sync` time as a normal dependency, not at
+    runtime — no network call ever occurs during a redaction
+    operation.
+  - PyPI distribution caveat: direct-URL deps work transparently
+    for installs from a git clone, `pipx install git+...`, or
+    `uv sync` from a checkout. If/when `redact-ai` is published to
+    PyPI, the install mechanism is revisited (vendoring the model
+    into the wheel, or moving to a first-run consent prompt with an
+    ADR-002 amendment).
   - Determinism (NFR-2.3) preserved: spaCy NER uses greedy
     decoding and is deterministic for a fixed model version and
     input.

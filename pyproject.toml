@@ -31,6 +31,11 @@ dependencies = [
     "pyyaml==6.0.2",
     "python-multipart==0.0.19",
     "spacy==3.7.5",
+    # The en_core_web_md model wheel is fetched at install time so
+    # `pip install redact-ai` is the only step a user needs (ADR-011).
+    # Pinned to the spaCy 3.7-compatible release; bump in lockstep with
+    # the `spacy` pin above.
+    "en-core-web-md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl",
 ]
 
 [project.optional-dependencies]

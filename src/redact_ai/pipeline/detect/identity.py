@@ -375,8 +375,10 @@ class DriverLicenceDetector:
 
 _DEFAULT_NER_MODEL = "en_core_web_md"
 _NER_MODEL_INSTALL_HINT = (
-    "Run `python -m spacy download en_core_web_md` once after install. "
-    "See ADR-011 in docs/DECISIONS.md."
+    "The model is normally pulled at install time (ADR-011). "
+    "If it has been removed from the environment, reinstall redact-ai "
+    "or install the matching wheel from "
+    "https://github.com/explosion/spacy-models/releases."
 )
 
 
