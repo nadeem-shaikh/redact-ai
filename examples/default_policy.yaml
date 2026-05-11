@@ -38,7 +38,7 @@ detectors:
     threshold: medium
   - id: ID-006
     enabled: true
-    threshold: medium      # spaCy NER PERSON entities (ADR-011)
+    threshold: low         # spaCy NER PERSON entities + slug variants (ADR-011)
   - id: ID-007
     enabled: true
     threshold: medium      # OpenCV Haar face detector (ADR-012)
