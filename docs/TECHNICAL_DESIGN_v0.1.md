@@ -1,0 +1,1384 @@
+# TECHNICAL DESIGN — redact-ai (v0.1 MVP)
+
+> Status: **Implementation-ready blueprint.** Translates the
+> technology-agnostic v0.1 spec set into concrete Pydantic types,
+> adapter Protocols, FastAPI handlers, drag-drop static UI, pytest
+> layout, `pyproject.toml` outline, and CI matrix. Anchored on
+> [ADR-001](./DECISIONS.md) (image-first), [ADR-002](./DECISIONS.md)
+> (local-first), [ADR-003](./DECISIONS.md) (technology-agnostic
+> specs), [ADR-004](./DECISIONS.md) (modular pipeline),
+> [ADR-005](./DECISIONS.md) (fail-closed),
+> [ADR-006](./DECISIONS.md) (manifest excludes raw matched text by
+> default), [ADR-007](./DECISIONS.md) (local web UI surface), and
+> [ADR-008](./DECISIONS.md) (PaddleOCR as the v0.1 default OCR
+> engine).
+
+---
+
+## 1. Overview
+
+`redact-ai` v0.1 is a privacy-first preprocessing pipeline that
+takes a screenshot or other image, runs OCR, detects sensitive
+content with deterministic regex/dictionary detectors, masks the
+sensitive regions in pixel space, and returns the redacted image
+plus a structured manifest. The system is **local-first by default**
+(ADR-002): the entire pipeline runs in a single Python process on
+the user's machine, with no outbound network in the default policy.
+
+The user-visible surface for v0.1 is a **local web UI** (ADR-007):
+the `redact-ai` console command starts a FastAPI server bound to
+`127.0.0.1`, opens the user's default browser at the bound URL, and
+serves a single drag-and-drop HTML page that talks to the server
+over the loopback interface. The CLI subcommand `redact-ai run`
+described in [`API_SPEC_v0.1.md`](./API_SPEC_v0.1.md) §5 is
+**reserved for v0.2**.
+
+This document is the engineering blueprint for the v0.1 build.
+Intended audience: implementing engineers and AI coding agents. It
+**does not replace** [`ARCHITECTURE_v0.1.md`](./ARCHITECTURE_v0.1.md)
+(high-level pipeline contracts) or
+[`API_SPEC_v0.1.md`](./API_SPEC_v0.1.md) (public types and
+endpoints). It complements them by closing four spec TODOs (the
+OCR `Hints` and `NormalisedImage` schemas, the `Policy` JSON
+schema, the error-envelope shape, and the manifest-equivalence
+definition for DT-001) and by publishing concrete picks where the
+v0.1 specs are deliberately technology-agnostic per ADR-003.
+
+The most consequential pick — **PaddleOCR as the default v0.1 OCR
+engine**, with Tesseract demoted to an opt-in `[ocr-tesseract]`
+extras install — is captured in [ADR-008](./DECISIONS.md). The
+trade-off (default install footprint of ~500 MB–1 GB, harder
+Windows / arm64 CI on `paddlepaddle` wheels) is accepted in
+exchange for materially higher OCR recall on real-world
+screenshots — the regime that dominates `redact-ai`'s inputs
+(anti-aliased UI text, low-DPI captures, emoji). The empirical
+recall comparison on the project's curated corpus is a v0.1
+release-gate item (§16); see ADR-008 for the conditions that
+would revert this default.
+
+---
+
+## 2. Scope
+
+### 2.1 In Scope
+
+- The v0.1 [`ROADMAP.md`](./ROADMAP.md) checklist items: OCR
+  adapter implementation, baseline detectors for IDENTITY /
+  CONTACT / FINANCIAL / CREDENTIALS, default + strict policies,
+  solid-block redactor, manifest generator, local web UI, and
+  end-to-end test cases TC-001…TC-010 + DT-001.
+- Closing the following spec TODOs:
+  - [`OCR_PIPELINE_v0.1.md`](./OCR_PIPELINE_v0.1.md): concrete
+    `Hints` and `NormalisedImage` schemas — see §6.
+  - [`ARCHITECTURE_v0.1.md`](./ARCHITECTURE_v0.1.md) §6: `Policy`
+    JSON schema — see §6.
+  - [`API_SPEC_v0.1.md`](./API_SPEC_v0.1.md): `ErrorEnvelope` JSON
+    shape and HTTP status mapping — see §6 and §13.
+  - [`TEST_CASES_v0.1.md`](./TEST_CASES_v0.1.md) (DT-001):
+    canonical-form rules for manifest equivalence under determinism
+    testing — see §9.
+- The local web UI surface (FR-9.1 … FR-9.7): FastAPI server,
+  `Origin` / `Host` validator, CSRF, static drag-and-drop page,
+  ephemeral-port binding.
+
+### 2.2 Out of Scope
+
+- PDF input and layout-aware redaction for tables / forms (v0.3).
+- The `redact-ai run --input ...` subcommand (v0.2) and other
+  power-user surfaces — clipboard ingestion, folder watcher.
+- Browser extension and OS share-sheet integration (v0.4).
+- User-defined detectors and policy authoring UI (v0.5).
+- The product / UX / scaling open questions catalogued across the
+  v0.1 spec set (default-policy strictness as a user-tunable knob,
+  manifest signing, streaming variant, RTL / non-Latin scripts
+  roadmap, OCR sandboxing, sealed mode, editable review screen,
+  and others). Each remains in its source doc with a TODO marker;
+  this TDD does not close them.
+- New ADRs beyond [ADR-008](./DECISIONS.md). The remaining
+  picks in §4 are recorded inline rather than promoted to ADRs.
+
+---
+
+## 3. System Architecture
+
+```text
+┌──────────────── USER DEVICE (trusted zone) ────────────────────┐
+│                                                                │
+│  Browser ──drag/drop──▶ FastAPI (127.0.0.1:<ephemeral-port>)   │
+│                              │                                 │
+│                              ▼                                 │
+│   Ingestor → OCR Engine → Detector × N → Redactor → Reporter   │
+│                                       │                        │
+│                  ◀──── redacted image + manifest ──────────────│
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+                      External AI tool (untrusted)
+```
+
+Every box runs inside one Python process. The loopback HTTP hop
+(`127.0.0.1`) does not traverse a network interface. No
+intermediate state is written to disk by default; persistence
+happens only when the user explicitly chooses an output path
+(FR-7.1, FR-7.3). The pipeline fails closed on any error that
+risks leaking sensitive content (ADR-005, FR-8.1).
+
+---
+
+## 4. Tech Stack
+
+| Concern | Pick | Trade-off accepted |
+| --- | --- | --- |
+| Language | Python 3.11+ | Drops 3.10 and earlier; preferred for `Self` typing, exception groups, perf |
+| Package | `redact_ai` (PyPI: `redact-ai`) | None |
+| OCR engine (default) | **PaddleOCR** (`paddleocr` + `paddlepaddle`) | +0.5–1 GB install, harder Windows / arm64 CI; bought higher real-screenshot accuracy |
+| OCR engine (fallback) | Tesseract via `[ocr-tesseract]` extras | None |
+| Offline-from-first-run install | `redact-ai[bundled-paddle]` extra ships PP-OCRv4 English-mobile weights (~30 MB) inside the wheel | Adds ~30 MB to wheel; non-English users still need `prefetch-models` to fetch additional language packs |
+| Image library | Pillow (≥ 10.x) | None |
+| Web framework | FastAPI + Uvicorn | None |
+| Multipart parsing | `python-multipart` | None |
+| Validation | Pydantic v2 | None |
+| Policy file format | JSON | YAML deferred to v0.2 (avoids extra dep) |
+| Default policy | `strict` | Bias toward recall on the v0.1 PII set |
+| Test framework | `pytest`, `pytest-asyncio`, `pytest-benchmark`, `httpx`, Pillow `ImageChops` | None |
+| Lint / type | `ruff`, `mypy --strict` | None |
+
+The PaddleOCR default is recorded in
+[ADR-008](./DECISIONS.md);
+[`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) has
+been reconciled in the same change as that ADR.
+
+---
+
+## 5. Module Design
+
+The `redact_ai/` package is layered to mirror the pipeline contracts
+in `ARCHITECTURE_v0.1.md` §3. Each module exposes a `Protocol` plus
+one or more concrete implementations.
+
+### 5.1 `redact_ai.types`
+
+Pydantic v2 models for every public type. No business logic; pure
+data. Re-exported under the package root so consumers can write
+`from redact_ai import Manifest`. Full schema in §6.
+
+### 5.2 `redact_ai.ingestor`
+
+```python
+from typing import Protocol
+
+class Ingestor(Protocol):
+    def ingest(self, source: ImageInput) -> NormalisedImage: ...
+```
+
+`DefaultIngestor` validates MIME (FR-1.1, FR-1.2), strips EXIF
+(FR-1.3), and emits a `NormalisedImage` whose `bytes` are the
+**post-preprocessing** form fed to the OCR engine (deskewed,
+denoised, up-sampled to `Hints.target_dpi`) and whose `input_*`
+fields preserve the **original** decoded image bytes and dimensions
+for the redactor (FR-4.4 — output preserves original dimensions
+and aspect ratio). Unsupported MIME types raise `InputFormatError`
+with `code = "E_INPUT_FORMAT"`.
+
+The forward transform from input space to normalised space is
+captured on the `NormalisedImage` so the redactor can map findings'
+bboxes back to input-space pixels (see §6.3).
+
+### 5.3 `redact_ai.ocr`
+
+```python
+class OcrEngine(Protocol):
+    def recognise(self, image: NormalisedImage, hints: Hints) -> Document: ...
+```
+
+Implementations:
+
+- `PaddleOcrEngine` (default) — wraps `paddleocr.PaddleOCR`,
+  serialises calls behind a per-process `threading.Lock`, maps
+  PaddleOCR's nested output into the `Document → Page → Block →
+  Line → Token` hierarchy from `OCR_PIPELINE_v0.1.md`.
+- `TesseractOcrEngine` (opt-in via `[ocr-tesseract]`) — wraps
+  `pytesseract.image_to_data`; same output contract.
+
+Engine selection happens at app-factory time via a config string
+(`config.ocr_engine = "paddle"` is the default).
+
+### 5.4 `redact_ai.detect`
+
+```python
+class Detector(Protocol):
+    rule_id: str
+    category: Category
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]: ...
+```
+
+One file per category: `identity.py`, `contact.py`, `financial.py`,
+`credentials.py`, plus `health.py` and `location.py` scaffolds for
+deferred rules. `registry.py` maps `rule_id → Detector` and exposes
+`iter_active_detectors(policy: Policy) -> Iterable[Detector]`.
+
+Adding a new detector in v0.1 means adding a class, registering
+its `rule_id` in `registry.py`, and adding a row to the policy
+schema's `detectors` allow-list (NFR-6.3).
+
+**Coordinate-space contract.** Detectors run against the OCR
+`Document`, whose bboxes are in **normalised-image** coordinates.
+The orchestrator (the `iter_active_detectors` driver) maps every
+finding's bbox from normalised space back to **input-image**
+coordinates via `NormalisedImage.transform.inverse_apply` before
+the finding is returned to the pipeline. By the time a `Finding`
+reaches the redactor, reporter, or HTTP boundary, its bbox is in
+input-image coordinates (matches `API_SPEC_v0.1.md` §3.7 and
+preserves FR-4.4).
+
+**Detector failure semantics.** A single detector raising during
+its `detect()` call is **non-fatal** (FR-8.2): the registry catches
+the exception, appends a `Warning(source="detector",
+code="detector_failed", message=...)` to the manifest, and
+continues with the remaining detectors. The two failure modes are
+distinct:
+
+- **`PolicyError` (`E_POLICY`)** — raised by the policy loader and
+  the orchestrator's startup check when the policy references a
+  `rule_id` that is not in the registry, or otherwise fails
+  validation. This is a **client-side configuration error**.
+- **`DetectorError` (`E_DETECTOR`)** — raised only when the
+  orchestrator itself cannot proceed *at runtime* despite a
+  validated policy (e.g., a registered detector class fails to
+  import at first use, or every detector in the active set
+  raised). This is an **upstream/runtime failure**.
+
+### 5.5 `redact_ai.redact`
+
+```python
+class Redactor(Protocol):
+    def redact(
+        self,
+        original: ImageInput,
+        findings: list[Finding],
+        policy: Policy,
+    ) -> ImageOutput: ...
+```
+
+`BlockRedactor` is the only style implemented in v0.1 (FR-4.2). It
+operates on `original.bytes` so the output preserves input
+dimensions per FR-4.4. Findings arrive with `bbox` already in
+input-image coordinates (the detection orchestrator performs the
+single inverse map; see §5.4); the redactor never sees the
+`NormalisedImage` and never deals with the transform.
+
+`BlurRedactor`, `PixelateRedactor`, `LabelRedactor` exist as stubs
+that raise `NotImplementedError` (v0.2; ROADMAP).
+
+### 5.6 `redact_ai.report`
+
+```python
+class Reporter:
+    def build(
+        self,
+        policy: Policy,
+        input_hash: str,
+        findings: list[Finding],
+        warnings: list[Warning],
+    ) -> Manifest: ...
+
+    def canonical_form(self, manifest: Manifest) -> bytes: ...
+```
+
+Produces the `Manifest` and exposes `canonical_form()` for DT-001.
+Honours ADR-006: `matched_text` is included only when
+`policy.verbose_report = True`.
+
+### 5.7 `redact_ai.policy`
+
+`load(path_or_name: str) -> Policy`. Built-in policies live in
+`redact_ai/policy/builtins/{default.json, strict.json}` and are
+shipped as package data. Validation errors raise `PolicyError`
+(`code = "E_POLICY"`).
+
+### 5.8 `redact_ai.server`
+
+FastAPI app factory + routes + middleware + static assets.
+
+```python
+class ServerConfig(BaseModel):
+    host: Literal["127.0.0.1"] = "127.0.0.1"
+    port: int = 0                  # ephemeral by default
+    ocr_engine: Literal["paddle", "tesseract"] = "paddle"
+    log_level: str = "INFO"
+    request_timeout_seconds: int = 30  # hard upper bound for any single POST /redact
+
+def create_app(config: ServerConfig) -> FastAPI: ...
+def run(config: ServerConfig) -> None: ...
+```
+
+The `request_timeout_seconds` budget covers the worst case where a
+`POST /redact` arrives during OCR warm-up: the handler waits up to
+this many seconds before returning a typed timeout error (see the
+warm-up override in §13.7).
+
+Routes registered: `POST /redact`, `GET /policies`, `GET /healthz`
+(liveness — process up, listener bound), `GET /readyz` (readiness —
+OCR engine loaded and able to serve), plus the static page at
+`GET /`. Middleware order (outermost first): `OriginHostValidator`,
+`CsrfValidator`, framework-default.
+
+**Status endpoints are outside the typed-error contract.** Both
+`/healthz` and `/readyz` return plain status JSON with no
+`ErrorEnvelope` wrapper, so they don't collide with the §13.7
+HTTP-status mapping for `E_*` codes. Specifically:
+
+- `GET /healthz` returns `200 {"status": "ok", "version": "..."}`
+  as soon as the listener is bound.
+- `GET /readyz` returns `200 {"status": "ready"}` once the OCR
+  engine has finished its first `recognise()` warm-up. While
+  warming it returns `503 {"status": "warming",
+  "hint": "OCR engine warming up; retry shortly."}` — note the
+  body uses a `status` key, not an `error` key, and carries no
+  typed code; readiness is a transport-level concern, not a
+  pipeline error.
+
+`POST /redact` requests that arrive before warm-up completes block
+in a worker thread with a hard upper bound of
+`ServerConfig.request_timeout_seconds`; on timeout the handler
+returns `504` with `code = "E_IO"`, `stage = "server"`, and a
+clear hint (see §13.7).
+
+### 5.9 `redact_ai.cli`
+
+`redact-ai` console entrypoint. `main()` parses args, builds
+`ServerConfig`, calls `server.run()`, and opens the browser via
+`webbrowser.open`. See §10 for the flag set.
+
+### 5.10 `redact_ai.errors`
+
+Typed exception hierarchy:
+
+```python
+class RedactError(Exception):
+    code: str   # E_INPUT_FORMAT | E_OCR | E_DETECTOR | E_REDACTION | E_IO | E_POLICY
+    stage: str  # ingestor | ocr | detector | redactor | reporter | server
+    hint: str | None = None
+
+class InputFormatError(RedactError): ...   # code = "E_INPUT_FORMAT"
+class OcrError(RedactError): ...           # code = "E_OCR"
+class DetectorError(RedactError): ...      # code = "E_DETECTOR"
+class RedactionError(RedactError): ...     # code = "E_REDACTION"
+class IoError(RedactError): ...            # code = "E_IO"
+class PolicyError(RedactError): ...        # code = "E_POLICY"
+```
+
+A boundary handler in `server.app` maps each to an `ErrorEnvelope`
+JSON response with the HTTP status from §13.
+
+### 5.11 `redact_ai.logging`
+
+`configure_logging(level: str)` installs a `logging.config.dictConfig`
+with a `SafeFormatter` that strips any record fields named `text`,
+`matched_text`, or `bbox` (NFR-8.2). Structured fields surfaced to
+logs: `stage`, `rule_id`, `policy_id`, `duration_ms`,
+`request_id`.
+
+### 5.12 `redact_ai.pipeline`
+
+The orchestrator. Single public function:
+
+```python
+def redact(input: ImageInput, policy: Policy) -> RedactionResult: ...
+```
+
+Threads `input` and the `NormalisedImage` produced by the ingestor
+through Ingestor → OcrEngine → Detectors (orchestrated, with
+per-detector partial-tolerance per §5.4) → Redactor → Reporter,
+returning a single `RedactionResult` whose `manifest.warnings`
+aggregates events from every stage. Synchronous; the HTTP layer
+runs it via `fastapi.concurrency.run_in_threadpool` (§9.1).
+
+---
+
+## 6. Data Structures
+
+All public types are Pydantic v2 models in `redact_ai.types`. Field
+names match `API_SPEC_v0.1.md` §3 verbatim where defined; new
+fields are introduced only for the four schema TODOs this doc
+closes.
+
+### 6.1 Geometry
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+class Box(BaseModel):
+    """Pixel-space rectangle.
+
+    The coordinate space is contextual and MUST be documented by
+    the containing field. In v0.1: `Token.bbox` is in
+    post-preprocessing coordinates (the OCR-normalised image);
+    `Finding.bbox` is in INPUT-image coordinates after the
+    orchestrator's input-space mapping (§6.4 / API_SPEC §3.7)."""
+    x: int
+    y: int
+    w: int
+    h: int
+
+    model_config = ConfigDict(frozen=True)
+```
+
+### 6.2 OCR document model
+
+```python
+class Token(BaseModel):
+    id: str            # sha256(f"{page_index}:{bbox.x}:{bbox.y}:{text}").hexdigest()[:16]
+    text: str
+    bbox: Box
+    confidence: float  # in [0.0, 1.0]
+
+class Line(BaseModel):
+    id: str
+    bbox: Box
+    tokens: list[Token]
+
+class Block(BaseModel):
+    id: str
+    bbox: Box
+    lines: list[Line]
+
+class Page(BaseModel):
+    index: int        # 0-based; always 0 in v0.1 (single-image input)
+    width: int
+    height: int
+    blocks: list[Block]
+
+class Document(BaseModel):
+    pages: list[Page]
+    language: str = "en"
+```
+
+### 6.3 OCR adapter inputs (closes `OCR_PIPELINE_v0.1.md` TODO)
+
+```python
+from typing import Literal
+
+class BBoxTransform(BaseModel):
+    """Affine transform from input space to normalised space.
+
+    Stored as a 2x3 matrix [[a, b, tx], [c, d, ty]] applied as
+    (x', y') = (a*x + b*y + tx, c*x + d*y + ty). This shape
+    captures every preprocessing operation the v0.1 ingestor
+    actually performs (uniform scale, orthogonal or arbitrary-
+    angle rotation, translation, padding); a more restricted
+    schema would not survive a real-world deskew.
+
+    `inverse()` returns the matrix that maps normalised space
+    back to input space. `inverse_apply(box)` maps a Box from
+    normalised space to input space; for non-orthogonal rotations
+    the four corners of the box rotate to a quadrilateral, and
+    `inverse_apply` returns the AXIS-ALIGNED BOUNDING BOX of
+    that quadrilateral - an intentional, conservative
+    over-approximation that guarantees the masked region covers
+    the original detection (see ADR-005).
+    """
+    a: float
+    b: float
+    c: float
+    d: float
+    tx: float
+    ty: float
+
+    def inverse(self) -> "BBoxTransform": ...
+    def inverse_apply(self, box: Box) -> Box: ...
+
+class NormalisedImage(BaseModel):
+    bytes: bytes                                  # post-preprocessing, fed to OCR
+    width: int                                    # post-preprocessing
+    height: int
+    channels: Literal[1, 3, 4]
+    dpi: int                                      # post-preprocessing DPI
+    rotation: Literal[0, 90, 180, 270] = 0
+    source_format: Literal["png", "jpeg", "webp"]
+    input_width: int                              # original input dimensions (for FR-4.4)
+    input_height: int
+    transform: BBoxTransform                      # input -> normalised mapping
+
+class Hints(BaseModel):
+    language: str = "en"
+    expected_orientation: Literal["auto", 0, 90, 180, 270] = "auto"
+    deskew: bool = True
+    denoise: bool = True
+    target_dpi: int = 300
+```
+
+### 6.4 Image input / output
+
+```python
+from pathlib import Path
+
+class ImageInput(BaseModel):
+    source: Literal["file", "bytes", "clipboard"]
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"]
+    bytes: bytes
+    path: Path | None = None
+
+class ImageOutput(BaseModel):
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"]
+    bytes: bytes
+    path: Path | None = None
+```
+
+### 6.5 Policy (closes `ARCHITECTURE_v0.1.md` §6 TODO)
+
+```python
+from typing import Any
+
+RuleId = str                                  # "ID-001", "CO-002", ...
+Confidence = Literal["low", "medium", "high"]
+RedactionStyle = Literal["block", "blur", "pixelate", "label"]
+
+class DetectorRef(BaseModel):
+    id: RuleId
+    enabled: bool = True
+    threshold: Confidence = "medium"
+    overrides: dict[str, Any] = {}
+
+class Policy(BaseModel):
+    id: str                                   # "default", "strict", or user-supplied
+    version: str                              # semver, e.g. "0.1.0"
+    description: str = ""
+    detectors: list[DetectorRef]
+    redaction_style: RedactionStyle = "block"
+    fill_colour: str = "#000000"              # used by BlockRedactor; CSS hex
+    strict: bool = True                       # v0.1 default
+    verbose_report: bool = False              # ADR-006
+```
+
+**Confidence ordering (M5).** `Confidence` literal members are
+ordered `low < medium < high`. Detectors and the redactor compare
+via this helper:
+
+```python
+_CONFIDENCE_ORDER: dict[Confidence, int] = {"low": 0, "medium": 1, "high": 2}
+
+def confidence_at_or_above(have: Confidence, threshold: Confidence) -> bool:
+    return _CONFIDENCE_ORDER[have] >= _CONFIDENCE_ORDER[threshold]
+```
+
+`default.json`:
+
+```json
+{
+  "id": "default",
+  "version": "0.1.0",
+  "description": "v0.1 strict baseline: all CO/ID/FI/CR rules on, HE-001 on.",
+  "detectors": [
+    { "id": "ID-001", "enabled": true, "threshold": "medium" },
+    { "id": "ID-002", "enabled": true, "threshold": "medium" },
+    { "id": "ID-003", "enabled": true, "threshold": "medium" },
+    { "id": "ID-004", "enabled": true, "threshold": "medium" },
+    { "id": "ID-005", "enabled": true, "threshold": "medium" },
+    { "id": "CO-001", "enabled": true, "threshold": "low" },
+    { "id": "CO-002", "enabled": true, "threshold": "low" },
+    { "id": "CO-003", "enabled": true, "threshold": "medium" },
+    { "id": "FI-001", "enabled": true, "threshold": "low" },
+    { "id": "FI-002", "enabled": true, "threshold": "low" },
+    { "id": "FI-003", "enabled": true, "threshold": "medium" },
+    { "id": "FI-004", "enabled": true, "threshold": "medium" },
+    { "id": "HE-001", "enabled": true, "threshold": "medium" },
+    { "id": "CR-001", "enabled": true, "threshold": "medium" },
+    { "id": "CR-002", "enabled": true, "threshold": "low" },
+    { "id": "CR-003", "enabled": true, "threshold": "low" },
+    { "id": "LO-001", "enabled": true, "threshold": "medium" }
+  ],
+  "redaction_style": "block",
+  "fill_colour": "#000000",
+  "strict": true,
+  "verbose_report": false
+}
+```
+
+`strict.json` is identical to `default.json` for v0.1 (the bias is
+already strict). It exists as a named alias so users can write
+`--policy strict` explicitly. A future "lenient" preset would land
+as a separate file.
+
+### 6.6 Detection, result, and manifest
+
+```python
+from datetime import datetime
+
+Category = Literal[
+    "IDENTITY", "CONTACT", "FINANCIAL", "HEALTH",
+    "CREDENTIALS", "LOCATION", "CUSTOM",
+]
+
+class Finding(BaseModel):
+    # id = sha256(f"{rule_id}:{page_index}:{bbox.x}:{bbox.y}:{bbox.w}:{bbox.h}").hexdigest()[:16]
+    # The id is computed AFTER the orchestrator maps the bbox into
+    # input-image coordinates so the id is stable across OCR
+    # preprocessing changes that don't change input-space geometry.
+    id: str
+    category: Category
+    rule_id: RuleId
+    bbox: Box                                 # in INPUT-image coordinates (matches API_SPEC §3.7)
+    confidence: Confidence
+    matched_text: str | None = None           # only when verbose_report=True
+    meta: dict[str, Any] = {}                 # e.g. {"also_matched": ["CO-001", ...]}
+
+class Warning(BaseModel):
+    code: str
+    message: str
+    source: Literal["ingestor", "ocr", "detector", "redactor", "reporter", "server"]
+
+class Stats(BaseModel):
+    redactions_total: int
+    by_category: dict[Category, int]
+
+class Manifest(BaseModel):
+    policy_id: str
+    policy_version: str
+    runtime_version: str                      # redact-ai package version (per API_SPEC §6); metadata only, NOT in the canonical hash (see §9.2)
+    input_hash: str                           # sha256 hex of the ORIGINAL ImageInput.bytes (pre-preprocessing); stable across deskew / denoise / DPI changes
+    created_at: datetime                      # ISO 8601, UTC
+    stats: Stats
+    findings: list[Finding]
+    warnings: list[Warning] = []              # canonical home for all stage warnings
+
+class RedactionResult(BaseModel):
+    output_image: ImageOutput
+    manifest: Manifest
+    warnings: list[Warning] = []  # mirror of manifest.warnings (matches API_SPEC §3.4)
+```
+
+**Why both lists exist.** `manifest.warnings` is the canonical
+durable record (it lives inside the on-disk manifest and inside
+the manifest JSON returned alongside the image). `RedactionResult.warnings`
+is a transient mirror retained at the result envelope so the
+documented `API_SPEC_v0.1.md` §3.4 shape is preserved for any
+client reading the in-memory result without unwrapping the
+manifest. The pipeline guarantees the two lists are always equal
+in canonical-form order.
+
+### 6.7 Error envelope (closes `API_SPEC_v0.1.md` TODO)
+
+Returned on any `4xx` / `5xx` from the local HTTP API.
+
+```python
+class ErrorBody(BaseModel):
+    code: Literal[
+        "E_INPUT_FORMAT", "E_OCR", "E_DETECTOR",
+        "E_REDACTION", "E_IO", "E_POLICY",
+    ]
+    message: str
+    stage: Literal["ingestor", "ocr", "detector", "redactor", "reporter", "server"]
+    hint: str | None = None
+
+class ErrorEnvelope(BaseModel):
+    error: ErrorBody
+```
+
+JSON shape:
+
+```json
+{
+  "error": {
+    "code": "E_INPUT_FORMAT",
+    "message": "Unsupported input format: image/heic",
+    "stage": "ingestor",
+    "hint": "Try PNG, JPEG, or WebP."
+  }
+}
+```
+
+HTTP status mapping is in §13.
+
+---
+
+## 7. Detection Engine Design
+
+Detectors are deterministic; no ML in v0.1. Each `Detector` runs
+once over the `Document` for its category. Output `Finding`s carry
+a confidence band (`low | medium | high`) consumed by the redactor
+according to `policy.strict`.
+
+### 7.1 Strategy table
+
+| Rule ID | Strategy | Confidence basis |
+| --- | --- | --- |
+| CO-001 (email) | Regex (RFC 5322 subset) | `high` if domain valid, `medium` otherwise |
+| CO-002 (phone, intl) | Regex + libphonenumber-style heuristics | `medium` / `high` |
+| CO-003 (postal address) | Multi-token + bbox proximity + dictionary | `medium` |
+| ID-001 (full names) | First-name + last-name dictionaries + casing | `medium` |
+| ID-002 (DOB) | Multi-format date regex + plausibility | `high` |
+| ID-003 (gov ID, generic) | Format heuristics by locale (default `en-US`) | `medium` |
+| ID-004 (passport) | Locale-aware format | `medium` / `high` |
+| ID-005 (driver's licence) | Locale-specific format | `medium` |
+| FI-001 (PAN) | Regex + Luhn checksum | `high` (Luhn=true) |
+| FI-002 (IBAN) | Regex + mod-97 checksum | `high` |
+| FI-003 (bank acct) | Locale-specific format | `medium` |
+| FI-004 (CVV+expiry adjacent to PAN) | Bbox proximity to FI-001 finding | `high` |
+| CR-001 (high-entropy token) | Length floor + Shannon entropy | `medium` / `high` |
+| CR-002 (SSH private key block) | Block-marker regex (`-----BEGIN ... PRIVATE KEY-----`) | `high` |
+| CR-003 (cloud key prefix) | Prefix table (`AKIA`, `AIza`, `xoxb-`, ...) + length | `high` |
+| HE-001 (medical record number) | Locale-specific format | `medium` |
+| LO-001 (GPS coordinates) | Regex + plausibility (lat ∈ [-90, 90], lon ∈ [-180, 180]) | `high` |
+
+### 7.2 Base class outline
+
+```python
+class BaseDetector:
+    rule_id: str
+    category: Category
+
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]:
+        ref = next(d for d in policy.detectors if d.id == self.rule_id)
+        if not ref.enabled:
+            return []
+        findings: list[Finding] = []
+        for page in doc.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    findings.extend(self._scan_line(line, ref))
+        return [f for f in findings if self._passes_threshold(f, ref.threshold)]
+
+    # Subclass hook
+    def _scan_line(self, line: Line, ref: DetectorRef) -> list[Finding]: ...
+```
+
+### 7.3 Confidence behaviour
+
+| `policy.strict` | Finding confidence | Behaviour |
+| --- | --- | --- |
+| `True` | `low` | Redact + emit `low_confidence` warning |
+| `True` | `medium` / `high` | Redact |
+| `False` | `low` | Skip + emit `low_confidence_skipped` warning |
+| `False` | `medium` / `high` | Redact |
+
+A finding's confidence MUST be at or above its `DetectorRef.threshold`
+to enter the redactor pipeline. The threshold is independent of
+`policy.strict`, which only governs how `low`-confidence findings
+are treated.
+
+### 7.4 Overlap collapse
+
+FR-3.5 requires that overlapping findings collapse into a single
+masked region. Algorithm:
+
+1. Compute IoU (intersection-over-union) for every pair of findings.
+2. Build connected components where edges have `IoU ≥ 0.5`.
+3. Collapse each component to one `Finding` with:
+   - `bbox` = bounding rectangle of the component.
+   - `rule_id` = highest-confidence finding's `rule_id`; ties
+     broken by lexicographic `rule_id` for determinism.
+   - `category` = corresponding category for that `rule_id`.
+   - `confidence` = highest-confidence band in the component.
+   - `meta = {"also_matched": [<other rule_ids, sorted>]}` — the
+     `Finding.meta` field on the public schema (§6.6).
+   - `id` recomputed from the **collapsed** `(rule_id, page_index,
+     bbox)` so `Finding.id` remains a function of the final shape.
+
+### 7.5 Pluggability
+
+Adding a new detector in v0.1 means:
+
+1. Adding a `BaseDetector` subclass in the relevant category file.
+2. Registering its `rule_id` in `redact_ai/detect/registry.py`.
+3. Adding a `DetectorRef` row to the policy schema's `detectors`
+   allow-list (NFR-6.3).
+
+No core pipeline change required.
+
+---
+
+## 8. Redaction Engine Design
+
+`BlockRedactor` is the v0.1 default. It draws solid rectangles over
+each `Finding` bbox and verifies the result.
+
+### 8.1 Algorithm
+
+1. Open `original.bytes` with Pillow, preserving mode and the
+   **original** dimensions (FR-4.4). The normalised bytes are
+   discarded for masking — they were the OCR engine's input only.
+2. Build an `ImageDraw.Draw` context.
+3. For each `Finding` (whose `bbox` is already in input-image
+   coordinates per §5.4):
+   - Snap to integer pixels; clamp to image bounds; reject any
+     resulting zero-area rectangle as `E_REDACTION` (a 0-pixel
+     mask is itself a fail-closed condition).
+   - `draw.rectangle((x, y, x+w-1, y+h-1), fill=policy.fill_colour)`.
+     `policy.fill_colour` defaults to `#000000` (see §6.5).
+4. **Lossless post-condition (FR-4.5).** For each masked rectangle,
+   sample every pixel **before** any re-encoding and assert it
+   equals `policy.fill_colour` exactly. If any pixel differs,
+   raise `RedactionError` (`E_REDACTION`) and produce no output
+   (ADR-005). This runs in the lossless RGB intermediate buffer so
+   the assertion is bit-exact.
+5. Re-encode in `original.mime_type` (FR-7.1):
+   - For **lossless** formats (PNG): re-decode the encoded bytes
+     and re-run the bit-exact assertion as in step 4.
+   - For **lossy** formats (JPEG, WebP at quality 95): re-decode
+     the encoded bytes, sample every pixel of every masked
+     rectangle, and assert that **per-channel deviation from
+     `policy.fill_colour` is ≤ 8 LSB**. The 8-LSB band reflects
+     real chroma-subsampling and DCT-quantisation behaviour at
+     q=95 around high-contrast mask edges; a tighter bound trips
+     spuriously, a looser bound risks letting visible content
+     bleed through. If any pixel exceeds the band, raise
+     `RedactionError`.
+
+### 8.2 Future styles (v0.2)
+
+`BlurRedactor`, `PixelateRedactor`, `LabelRedactor` are scaffolded
+as `Redactor` subclasses that raise `NotImplementedError` in v0.1
+to keep their entry points stable.
+
+---
+
+## 9. Pipeline Design
+
+```text
+ImageInput
+   │
+   ▼
+[Ingestor]  ──▶  NormalisedImage
+                       │
+                       ▼
+                 [OcrEngine]  ──▶  Document
+                                       │
+                                       ▼
+                                 [Detector × N]  ──▶  list[Finding]
+                                                          │
+                                                          ▼
+                                                    [Redactor]  ──▶  ImageOutput
+                                                                          │
+                                                                          ▼
+                                                                    [Reporter]  ──▶  Manifest
+                                                                                          │
+                                                                                          ▼
+                                                                                  RedactionResult
+```
+
+### 9.1 Pipeline function
+
+```python
+def redact(input: ImageInput, policy: Policy) -> RedactionResult: ...
+```
+
+Synchronous. The HTTP handler runs it in a threadpool
+(`fastapi.concurrency.run_in_threadpool`) so the event loop stays
+free.
+
+### 9.2 Determinism (DT-001)
+
+The v0.1 pipeline contains two regions with different determinism
+guarantees:
+
+- **OCR stage** — PaddleOCR (and most ML inference stacks) is
+  **not bit-deterministic across runs**: BLAS reductions, thread
+  scheduling, and kernel non-determinism produce small numerical
+  drift. NFR-2.3 ("Reproducibility of identical inputs: 100%
+  deterministic") cannot be honoured for the OCR stage in v0.1
+  with PaddleOCR as the chosen engine.
+- **Post-OCR pipeline** (Detectors → Redactor → Reporter) — pure
+  Python, no random state, no I/O. **Bit-deterministic by
+  construction.**
+
+**DT-001 in v0.1.** DT-001 tests the deterministic region
+end-to-end and the OCR stage softly:
+
+1. **Hard determinism (the DT-001 assertion proper).** Run the
+   full pipeline once on the TC-001 input, capturing the resulting
+   `Document` to a fixture. Replay the post-OCR pipeline twice
+   from that fixture and assert (a) byte-identical
+   `RedactionResult.output_image.bytes` and (b) identical manifest
+   canonical-form hashes.
+2. **Soft OCR-stability check.** A separate test runs OCR twice
+   on the same input and asserts a similarity floor — text-overlap
+   ≥ 99% and per-token bbox IoU ≥ 0.95 — to detect regressions in
+   the engine adapter without making byte-determinism a hard
+   requirement of the OCR stage.
+
+**Cross-doc reconciliation.** NFR-2.3 in
+[`NON_FUNCTIONAL_REQUIREMENTS_v0.1.md`](./NON_FUNCTIONAL_REQUIREMENTS_v0.1.md)
+has been refined to match this split: post-OCR pipeline
+100% bit-deterministic; OCR stage stability asserted by the soft
+similarity check above. The two documents are intended to ship
+together with [ADR-008](./DECISIONS.md).
+
+**Manifest canonical form.**
+
+1. Sort `findings` by tuple `(rule_id, bbox.y, bbox.x, bbox.w, bbox.h, id)`.
+2. Sort `warnings` by tuple `(source, code, message)`.
+3. **Include** in the canonical form: `policy_id`, `policy_version`,
+   `input_hash`, `stats`, `findings`, `warnings`. These are the
+   fields whose values are intended to be deterministic for a
+   given (input, policy) pair.
+4. **Exclude** from the canonical form: `created_at` (wall-clock,
+   present only on the on-disk artefact) and `runtime_version`
+   (the implementation under test; including it would make DT-001
+   fail by construction on every release). Both fields remain on
+   the persisted manifest as traceability metadata.
+5. `input_hash` is the SHA-256 of the **original** `ImageInput.bytes`
+   (pre-preprocessing), so the canonical form is stable across
+   deskew / denoise / DPI changes that don't alter the user-visible
+   redaction output.
+6. Serialise as canonical JSON: `sort_keys=True`,
+   `separators=(",", ":")`, no whitespace, datetimes excluded.
+7. Hash with SHA-256 to produce the comparison key.
+
+### 9.3 Error handling
+
+Each stage raises a typed `RedactError` subclass. A single boundary
+handler in `redact_ai.server.app` catches the base class and
+converts to `ErrorEnvelope` + the HTTP status from §13.
+
+**Warnings list ownership.** The canonical store of non-fatal
+events from any stage is `Manifest.warnings`. The pipeline also
+populates `RedactionResult.warnings` as a mirror so the documented
+`API_SPEC_v0.1.md` §3.4 result shape is preserved (see §6.6); the
+two lists are guaranteed equal in canonical-form order.
+
+**Detector failures are partial** (FR-8.2): a single detector
+raising → `Warning(source="detector")`, continue with the rest.
+`E_DETECTOR` is raised only when the orchestrator cannot proceed
+(see §5.4). All other stage failures produce no output (ADR-005).
+
+### 9.4 Memory hygiene
+
+`Document` and `Findings` are released once `Redactor` and
+`Reporter` have produced their outputs. The raw OCR text held in
+`Token.text` is replaced with a sentinel string before the
+`Document` goes out of scope; this is a best-effort hygiene step,
+not a defence against a memory-reading adversary (out of scope per
+`SECURITY_v0.1.md` §2.4).
+
+No request body is written to disk by the pipeline. The user-chosen
+output path is written by the **caller** (CLI or HTTP handler), not
+by the pipeline function.
+
+---
+
+## 10. CLI Design
+
+The v0.1 user-visible surface is the local web UI; the CLI is the
+**bootstrapping command** that starts the server and opens the
+browser.
+
+### 10.1 Default invocation
+
+```text
+$ redact-ai
+```
+
+Behaviour:
+
+1. Parse args.
+2. Build `ServerConfig`.
+3. Bind FastAPI on `127.0.0.1` with an ephemeral port (`port=0`).
+4. Print the bound URL on `stderr` (e.g., `http://127.0.0.1:54321`).
+5. `webbrowser.open(url)` — non-fatal if the browser fails to
+   launch; the URL is still on stderr.
+6. Block on Uvicorn's main loop until SIGINT.
+
+### 10.2 Flags (v0.1)
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--port <int>` | `0` (ephemeral) | Override the port (still loopback-only). |
+| `--no-browser` | `False` | Start the server but do not auto-open the browser. |
+| `--policy <name\|path>` | `default` | Preload a non-default policy. |
+| `--log-level` | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `--ocr-engine <paddle\|tesseract>` | `paddle` | Override OCR engine for this run. |
+| `--version` | — | Print version + exit. |
+| `--help` | — | Print usage + exit. |
+
+### 10.3 `prefetch-models` subcommand
+
+```text
+$ redact-ai prefetch-models [--engine paddle|tesseract|all]
+```
+
+One-time setup that downloads the OCR engine's weights into the
+local cache and exits. Default engine is the configured default
+(`paddle`). Idempotent — re-running on a populated cache verifies
+the existing files and exits 0. Failures (network, disk, hash
+mismatch) raise `IoError` (`E_IO`) with a clear hint and exit 74
+(`EX_IOERR`).
+
+Documented as a one-time post-install step in the README. The
+default policy never initiates outbound network activity at request
+time (ADR-002); if the user skips the prefetch step **and** has not
+installed the `redact-ai[bundled-paddle]` extra (which ships the
+PP-OCRv4 English-mobile weights, ~30 MB, inside the wheel), `POST
+/redact` fails fast with `E_IO` and a hint to either run
+`redact-ai prefetch-models` or reinstall with the bundled extra.
+No lazy download happens at request time under the default policy.
+
+### 10.4 Reserved subcommand
+
+```text
+$ redact-ai run --input ./screenshot.png …
+```
+
+Reserved for v0.2 per `API_SPEC_v0.1.md` §5. In v0.1, invoking
+`run` prints `Available in v0.2; use the local web UI for v0.1.`
+and exits with code `64` (`EX_USAGE`).
+
+### 10.5 Console entrypoint
+
+`pyproject.toml`:
+
+```toml
+[project.scripts]
+redact-ai = "redact_ai.cli:main"
+```
+
+---
+
+## 11. Performance Requirements
+
+| NFR | Target | Enforcement in v0.1 |
+| --- | --- | --- |
+| NFR-1.1 | ≤ 3 s end-to-end for a 1080p screenshot (incl. localhost roundtrip) | `pytest-benchmark` test on a 1080p golden, asserts mean < 3.0 s |
+| NFR-1.2 | ≤ 1 GB peak RAM | `tracemalloc` smoke test on the largest golden |
+| NFR-1.3 | ≤ 2 s cold-start (process up + listener bound) | Lazy-load PaddleOCR after the listener is bound; cold-start measured by time from process start to first `200 OK` from `GET /healthz` (liveness, **not** readiness — see §5.8). Readiness (`/readyz`) is allowed up to 6 s separately. |
+| NFR-2.1 | Recall ≥ 95% on baseline | Computed against TC-001…TC-010 expected-findings table |
+| NFR-2.2 | False-positive rate ≤ 5% | TC-006 (benign meme) must produce 0 findings |
+| NFR-2.3 | Post-OCR pipeline 100% bit-deterministic; OCR stage stability ≥ 99% text-overlap and ≥ 0.95 per-token bbox IoU on identical inputs (see §9.2 for the split-determinism rationale) | DT-001 in `tests/e2e/test_determinism.py` — hard assertion replays the post-OCR pipeline from a fixed `Document` fixture and asserts byte-identical `output_image.bytes` + identical canonical-form hashes; a soft OCR-stability assertion in the same file re-runs OCR twice and checks the similarity floor |
+
+**PaddleOCR cold-start handling.** PaddleOCR downloads model
+weights on first use and incurs a 3–5 s constructor cost even with
+weights cached on disk. The TDD splits this into two phases:
+
+- **Liveness** (`/healthz`, NFR-1.3 budget ≤ 2 s) — the listener is
+  bound and the process is up. PaddleOCR is **not** required to be
+  loaded.
+- **Readiness** (`/readyz`, soft budget ≤ 6 s) — the OCR engine is
+  loaded and warmed up.
+
+Weights are not downloaded automatically by `pip install`. Users
+have two ways to populate the local cache:
+
+1. Install with the `redact-ai[bundled-paddle]` extra. This pulls
+   in the PP-OCRv4 English-mobile weights bundled inside the wheel
+   (~30 MB), so the system works offline from the first invocation.
+2. Run `redact-ai prefetch-models` once while online to download
+   the weights into the local cache (see §10).
+
+On a cold cache **and** without the bundled extra, `POST /redact`
+fails fast with `E_IO` and a clear hint — the default policy does
+not perform outbound network calls at request time (ADR-002).
+
+---
+
+## 12. Edge Cases
+
+| Edge case | Behaviour |
+| --- | --- |
+| Unsupported MIME (e.g., HEIC) | `E_INPUT_FORMAT`, HTTP 415, no output (TC-010) |
+| Zero-byte upload | `E_INPUT_FORMAT`, HTTP 415 |
+| Image larger than 25 MB | `E_INPUT_FORMAT` with hint "max 25 MB" (server-side limit) |
+| Truncated / corrupt PNG | `E_INPUT_FORMAT`; the ingestor re-decodes via Pillow to detect |
+| OCR returns empty `Document` | Pipeline succeeds; `manifest.stats.redactions_total = 0`; output image is binary-equivalent to input (TC-006-style) |
+| Detector raises | Continue with remaining detectors; append `Warning(source="detector")` (FR-8.2) |
+| Redactor post-condition fails | `E_REDACTION`, no output (ADR-005) |
+| Low-confidence detection in `strict` | Redact + add `low_confidence` warning |
+| Low-confidence detection in `lenient` | Skip + add `low_confidence_skipped` warning |
+| Drag-drop on unsupported browser | `<input type=file>` fallback path is always present in the HTML |
+| Cross-origin upload attempt | HTTP 403 with `E_POLICY` (server-policy: same-origin only) |
+| Missing or invalid CSRF token | HTTP 403 with `E_POLICY` |
+| Two redactions in flight | Pipeline is request-scoped; concurrent requests OK; PaddleOCR call serialised by a per-process lock |
+| Browser launch fails | Server still runs; URL printed on `stderr` |
+| `--port` already in use | If user supplied `--port` explicitly, fail with `E_IO`; else retry with another ephemeral port |
+| OCR engine unavailable (PaddleOCR import error) | Fail-fast on startup with `E_IO` and a hint to `pip install redact-ai[ocr-tesseract]` and `--ocr-engine tesseract` |
+
+---
+
+## 13. Security & Privacy Model
+
+Implementation-concrete restatement of `SECURITY_v0.1.md` §4a.
+
+### 13.1 Bind address
+
+`127.0.0.1` only. Passed as `host="127.0.0.1"` to Uvicorn. **Never**
+`0.0.0.0` or any external interface.
+
+`ServerConfig.host: Literal["127.0.0.1"]` (§5.8) makes any other
+value a Pydantic validation error at config-build time. The
+startup hook still re-asserts `host == "127.0.0.1"` immediately
+before `uvicorn.run` as **defence in depth** against future
+refactors that might widen the type — fail-loud-and-fast with
+`E_POLICY` rather than silently bind elsewhere.
+
+### 13.2 Origin / Host validation (middleware)
+
+The middleware maintains **two** allowlists — one for the `Origin`
+header (full origins, with scheme) and one for the `Host` fallback
+(host only, no scheme). They must be kept in sync; the only
+intended difference between the two is the `http://` prefix.
+
+```python
+# The Origin header carries scheme://host:port; entries are built at
+# server startup using the bound loopback port so they match an
+# ephemeral port (e.g. when the server is started with port=0).
+def _allowed_origins(port: int) -> frozenset[str]:
+    return frozenset({
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+        f"http://[::1]:{port}",
+    })
+
+ALLOWED_HOSTS = {
+    "127.0.0.1",
+    "localhost",
+    "[::1]",
+}
+```
+
+Two allowlists are required because an `Origin` header carries
+`scheme://host[:port]` while a `Host` header carries only
+`host[:port]` — comparing one against the other after a single
+"strip port" normalisation can never match.
+
+**Decision logic:**
+
+1. If the request has an `Origin` header, normalise it (lowercase
+   host, strip a trailing slash) and require membership in the
+   `_allowed_origins(bound_port)` set built above. The set is
+   constructed with the actual bound loopback port so ephemeral
+   ports (e.g. `http://127.0.0.1:54321` when started with `port=0`)
+   match correctly.
+2. If `Origin` is absent — notably on top-level browser navigations
+   to `GET /`, where most browsers omit `Origin` on same-origin
+   GETs — normalise the `Host` header (lowercase, strip the
+   trailing port; for IPv6, the bracketed form `[::1]` is
+   preserved) and require membership in `ALLOWED_HOSTS`.
+3. If neither header is present, reject.
+
+Any failure returns HTTP 403 + `ErrorEnvelope { code: "E_POLICY",
+stage: "server" }`.
+
+CORS is **not** enabled. Cross-origin requests are dropped by the
+above middleware before they reach any route.
+
+### 13.3 CSRF
+
+A per-process token is generated at startup (`secrets.token_urlsafe(32)`)
+and rendered into the static page as
+`<meta name="csrf-token" content="...">`. On every `POST /redact`,
+the client submits the token in a `csrf_token` form field. The
+middleware compares it against the per-process token in constant
+time (`hmac.compare_digest`). Mismatch → HTTP 403 + `E_POLICY`.
+
+The token rotates whenever the server restarts. There is no
+session table; the comparison is stateless against the
+per-process value.
+
+### 13.4 No auth, no persistence
+
+Single-user, single-machine — no credentials. The server holds no
+state between requests. Raw bytes are never written to disk. The
+user-chosen output path is written by the HTTP handler **after**
+the pipeline completes, only when the request body indicated an
+explicit save target.
+
+### 13.5 Logging hygiene
+
+The `SafeFormatter` strips any record fields named `text`,
+`matched_text`, or `bbox` (NFR-8.2). Structured fields surfaced to
+logs: `stage`, `rule_id`, `policy_id`, `duration_ms`,
+`request_id`. No raw image bytes ever enter the log path.
+
+### 13.6 Manifest content
+
+`matched_text` is included only when `policy.verbose_report = True`
+(ADR-006). The reporter explicitly drops the field when the policy
+disables it; this is enforced at write time, not just read time.
+
+### 13.7 HTTP status mapping for the error envelope
+
+| Code | HTTP status | Semantics |
+| --- | --- | --- |
+| `E_INPUT_FORMAT` | 415 Unsupported Media Type | MIME / size / corruption |
+| `E_OCR` | 502 Bad Gateway | OCR engine failed (treat as upstream) |
+| `E_DETECTOR` | 502 Bad Gateway | Detector failure that prevented output (after partial-tolerance per FR-8.2) |
+| `E_REDACTION` | 500 Internal Server Error | Redactor post-condition failed; no output |
+| `E_IO` | 500 Internal Server Error | Filesystem / port / engine-import failure |
+| `E_POLICY` | 400 Bad Request | Policy-level rejection (CSRF, origin, validation), unless §13.2 / §13.3 specifies 403 |
+
+**Documented overrides** of the table above:
+
+- §13.2 and §13.3 produce HTTP **403** even though the code is
+  `E_POLICY` (the defaults table would otherwise resolve to 400).
+- A `POST /redact` that exceeds `ServerConfig.request_timeout_seconds`
+  while waiting for OCR warm-up (see §5.8) produces HTTP **504**
+  (Gateway Timeout) with `code = "E_IO"`, `stage = "server"`. The
+  504 is semantically correct for a timeout and overrides the
+  default `E_IO → 500` mapping for this specific path.
+- `GET /healthz` and `GET /readyz` are status endpoints and do
+  **not** emit `ErrorEnvelope` bodies; they return plain status
+  JSON (see §5.8).
+
+### 13.8 Threats out of scope
+
+Root-level adversaries, side-channel attacks, and tamper-resistant
+audit logging are explicitly out of scope per
+[`SECURITY_v0.1.md`](./SECURITY_v0.1.md) §2.4.
+
+---
+
+## 14. Folder Structure
+
+```text
+redact-ai/                              # repo root
+├── pyproject.toml                      # project metadata, deps, console script
+├── README.md
+├── LICENSE
+├── PROMPTS.md
+├── docs/                               # existing v0.1 docs (unchanged)
+│   ├── PRODUCT_v0.1.md
+│   ├── ARCHITECTURE_v0.1.md
+│   ├── FUNCTIONAL_REQUIREMENTS_v0.1.md
+│   ├── NON_FUNCTIONAL_REQUIREMENTS_v0.1.md
+│   ├── REDACTION_RULES_v0.1.md
+│   ├── OCR_PIPELINE_v0.1.md
+│   ├── DATA_FLOW_v0.1.md
+│   ├── API_SPEC_v0.1.md
+│   ├── SECURITY_v0.1.md
+│   ├── TEST_CASES_v0.1.md
+│   ├── UX_FLOW_v0.1.md
+│   ├── TECH_STACK_OPTIONS_v0.1.md
+│   ├── TECHNICAL_DESIGN_v0.1.md        # this file
+│   ├── DECISIONS.md
+│   ├── ROADMAP.md
+│   └── CONTRIBUTING.md
+├── src/                                # src-layout per ADR-010
+│   └── redact_ai/                      # NEW v0.1 package
+│       ├── __init__.py                 # re-exports public types
+│       ├── types.py                    # all Pydantic models from §6
+│       ├── ingestor.py
+│       ├── ocr/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # OcrEngine Protocol + Hints + NormalisedImage
+│       │   ├── paddle.py               # PaddleOcrEngine (default)
+│       │   └── tesseract.py            # TesseractOcrEngine (extras)
+│       ├── detect/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # Detector Protocol + BaseDetector
+│       │   ├── identity.py             # ID-001..ID-005
+│       │   ├── contact.py              # CO-001..CO-003
+│       │   ├── financial.py            # FI-001..FI-004 (incl. Luhn)
+│       │   ├── credentials.py          # CR-001..CR-003
+│       │   ├── health.py               # HE-001 only in v0.1
+│       │   ├── location.py             # LO-001
+│       │   └── registry.py             # rule_id -> Detector lookup
+│       ├── redact/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # Redactor Protocol
+│       │   └── block.py                # BlockRedactor
+│       ├── report/
+│       │   ├── __init__.py
+│       │   └── manifest.py             # Reporter + canonical_form()
+│       ├── policy/
+│       │   ├── __init__.py
+│       │   ├── loader.py
+│       │   └── builtins/
+│       │       ├── default.json
+│       │       └── strict.json
+│       ├── server/
+│       │   ├── __init__.py
+│       │   ├── app.py                  # create_app()
+│       │   ├── routes.py               # /redact, /policies, /healthz, /
+│       │   ├── middleware.py           # OriginHostValidator, CsrfValidator
+│       │   └── static/
+│       │       ├── index.html          # drag-drop page
+│       │       ├── app.js
+│       │       └── app.css
+│       ├── pipeline.py                 # redact(input, policy) -> RedactionResult
+│       ├── cli.py                      # `redact-ai` console entrypoint
+│       ├── errors.py                   # typed exceptions + ErrorEnvelope mapper
+│       └── logging.py                  # SafeFormatter + dictConfig
+├── tests/
+│   ├── unit/
+│   │   ├── test_ingestor.py
+│   │   ├── test_detectors_identity.py
+│   │   ├── test_detectors_contact.py
+│   │   ├── test_detectors_financial.py
+│   │   ├── test_detectors_credentials.py
+│   │   ├── test_redactor_block.py
+│   │   ├── test_reporter_canonical.py
+│   │   ├── test_policy_loader.py
+│   │   ├── test_csrf.py
+│   │   └── test_origin_validator.py
+│   ├── integration/
+│   │   ├── test_pipeline_paddle.py
+│   │   ├── test_pipeline_tesseract.py
+│   │   ├── test_security.py            # CSRF + origin/host together
+│   │   └── test_http_roundtrip.py
+│   ├── e2e/
+│   │   ├── test_tc_001_bank_statement.py
+│   │   ├── test_tc_002_email_thread.py
+│   │   ├── test_tc_003_lab_report.py
+│   │   ├── test_tc_004_id_photo.py
+│   │   ├── test_tc_005_code_screenshot.py
+│   │   ├── test_tc_006_benign_meme.py
+│   │   ├── test_tc_007_dashboard.py
+│   │   ├── test_tc_008_low_quality_phone.py
+│   │   ├── test_tc_009_multilingual_receipt.py
+│   │   ├── test_tc_010_unsupported_format.py
+│   │   ├── test_determinism.py         # DT-001
+│   │   ├── test_cli_bootstrap.py
+│   │   └── test_cold_start.py          # NFR-1.3
+│   ├── benchmarks/
+│   │   └── test_latency_1080p.py       # NFR-1.1
+│   └── assets/                         # synthetic goldens, no real PII
+│       └── ...
+└── .github/
+    └── workflows/
+        └── ci.yml
+```
+
+---
+
+## 15. Engineering Risks
+
+Risks specific to the **MVP build**. Distinct from the threat-model
+risk table in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
+
+| Risk | Mitigation | Trigger to revisit |
+| --- | --- | --- |
+| `paddlepaddle` wheel availability gaps on Windows / arm64 | CI matrix tests both; documented Tesseract `[ocr-tesseract]` extras path with `--ocr-engine tesseract` | Three or more user-reported install failures in a release window |
+| PaddleOCR model download adds first-run latency | Prefetch weights at install time via a documented post-install step; `/readyz` remains 503 until model warm-up completes (`/healthz` is liveness only — see §5.8 / §11) | Cold-start exceeds NFR-1.3 in a fresh environment |
+| First-run OS firewall prompt confuses users | README banner; loopback-only minimises surface area | Repeated user reports |
+| OCR misses subtle PII (low-contrast or stylised) | Accuracy benchmark against the golden corpus; UI surfaces low-confidence regions; future migration to PaddleOCR-PP-OCRv4 if accuracy regresses | Recall < 95% on the benchmark |
+| Redaction post-condition false positive on lossy formats | Re-encode the redacted image in a lossless intermediate, then to the target format, with final read-back verification (exact match for lossless; per-channel deviation ≤ 8 LSB for lossy outputs per §8.1) | Test failure on a JPEG / WebP golden |
+| Concurrent uploads exhaust memory | Per-process upload-size cap (25 MB); PaddleOCR call serialised by a `threading.Lock` | OOM observed under stress test |
+| Drag-drop UI inconsistent across browsers | `<input type=file>` fallback is always rendered; tested on Chromium, Firefox, Safari | Drag-drop reliability blocks adoption |
+| FastAPI / Uvicorn cold-start drift | Lazy-load OCR after the listener is bound; `/readyz` gates readiness (`/healthz` is liveness only — see §5.8 / §11) | NFR-1.3 regression |
+| `E_REDACTION` post-condition triggers spuriously on alpha channels | `BlockRedactor` flattens to RGB before sampling; alpha is restored on encode | Spurious `E_REDACTION` on PNG goldens |
+| Policy JSON drift across versions | Manifests embed `policy_id` + `policy_version`; loader rejects unknown `rule_id`s with a clear error | A user reports a policy that won't load after upgrade |
+
+---
+
+## 16. Definition of Done (MVP)
+
+A v0.1 release requires every line ticked. Criterion → proof
+mapping (each "proof" is a CI-runnable test or check):
+
+| # | Criterion | Proof |
+| --- | --- | --- |
+| 1 | Package installs cleanly on macOS / Linux / Windows × Python 3.11 / 3.12 | CI matrix green on `ubuntu-latest`, `macos-latest`, `windows-latest` |
+| 2 | `redact-ai` console script starts the server and opens a browser | `tests/e2e/test_cli_bootstrap.py` |
+| 3 | TC-001 … TC-010 all green | `tests/e2e/test_tc_*.py` |
+| 4 | DT-001 (determinism) green | `tests/e2e/test_determinism.py` |
+| 5 | Latency benchmark under 3 s on a 1080p golden | `tests/benchmarks/test_latency_1080p.py` |
+| 6 | RAM peak under 1 GB on the largest golden | `tracemalloc` assertion in `test_latency_1080p.py` |
+| 7 | Cold-start under 2 s to first `/healthz` 200 | `tests/e2e/test_cold_start.py` |
+| 8 | `Origin` / `Host` validator rejects cross-origin and non-loopback requests | `tests/integration/test_security.py` |
+| 9 | CSRF validator rejects missing or invalid tokens | same |
+| 10 | Redaction post-condition holds on every TC-* golden (exact for lossless; per-channel ≤ 8 LSB for lossy per §8.1) | `tests/unit/test_redactor_block.py` |
+| 11 | Manifest excludes `matched_text` by default | `tests/unit/test_reporter_canonical.py` |
+| 12 | Default policy is `strict`; both `default.json` and `strict.json` ship as package data | `tests/unit/test_policy_loader.py` |
+| 13 | `README.md` documentation index links this TDD | `grep -n 'TECHNICAL_DESIGN_v0.1.md' README.md` |
+| 14 | No real PII in any test asset, doc example, or built-in policy | `grep` check on test assets and Markdown |
+| 15 | All four spec TODOs (`Hints`, `NormalisedImage`, `Policy`, `ErrorEnvelope`) are resolved by Pydantic stubs in this TDD | doc cross-reference (this file §6) |

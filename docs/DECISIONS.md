@@ -150,32 +150,55 @@ Entry template:
 
 ---
 
-## ADR-008 — Tesseract is the v0.1 default OCR engine
+## ADR-008 — PaddleOCR as the v0.1 default OCR engine
 
 - **Date:** 2026-05-10
 - **Status:** Accepted
 - **Context:**
-  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) left
-  the v0.1 OCR engine as an open question (Tesseract for breadth vs.
-  PaddleOCR for accuracy). Tesseract is ~80 MB total install,
-  available on every supported platform via standard package
-  managers, and ships with bbox metadata sufficient for our
-  document model. PaddleOCR adds 0.5–1 GB and a heavy ML runtime
-  (`paddlepaddle`) that conflicts with the v0.1 "lean baseline"
-  goal.
-- **Decision:** v0.1 ships **Tesseract** (via `pytesseract`) as the
-  default OCR adapter. PaddleOCR is provided as the opt-in
-  `redact-ai[ocr-paddle]` extra; the adapter exists, is loadable,
-  and runs the golden corpus, but is not the recall baseline for
-  v0.1 NFR-2.1.
+  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) as
+  originally drafted positioned Tesseract as the v0.1 baseline OCR
+  engine and PaddleOCR as an opt-in `[ocr-paddle]` extras install.
+  While drafting [`TECHNICAL_DESIGN_v0.1.md`](./TECHNICAL_DESIGN_v0.1.md)
+  the team identified two reasons to invert this choice for v0.1:
+  1. **Screenshot accuracy.** `redact-ai`'s primary input
+     (ADR-001) is screenshots — anti-aliased UI text at 96–144 DPI,
+     mixed fonts, low contrast, and emoji. Published benchmarks
+     and prior team experience put Tesseract default-config recall
+     on this regime materially below PaddleOCR-PP-OCRv4 (a
+     scene-dependent gap, but typically large enough to risk the
+     NFR-2.1 95% recall floor).
+  2. **Detection coverage is bounded by OCR.** The v0.1 detectors
+     are deterministic regex/dictionary detectors (TECHNICAL_DESIGN
+     §7) operating on OCR output. Recall ceiling is the OCR's
+     ceiling; weak OCR cannot be compensated for by detector
+     tuning. In a redactor, missed PII is a privacy failure
+     (ADR-005), not a quality issue.
+- **Decision:** PaddleOCR is the default OCR engine for v0.1.
+  Tesseract is demoted to an opt-in `[ocr-tesseract]` extras
+  install for environments where the `paddlepaddle` runtime is
+  unavailable (notably some Windows / arm64 configurations).
 - **Consequences:**
-  - `recognise()` returns Tesseract token-level confidence on the
-    `0.0–1.0` scale (after dividing the engine's `0–100`).
-  - The recall target (≥ 95% on the curated corpus) is measured
-    against Tesseract output. A miss attributable to OCR triggers
-    re-evaluation of PaddleOCR for v0.2, not a v0.1 default change.
-  - First-run OS firewall prompts and Tesseract-install hints are
-    documented in `CONTRIBUTING.md`.
+  - Default install footprint grows from ~50–80 MB to ~500 MB–1 GB.
+  - CI matrix complexity increases on Windows and arm64 because of
+    `paddlepaddle` wheel availability gaps; a documented
+    Tesseract-fallback path remains supported.
+  - The `redact-ai prefetch-models` subcommand
+    (TECHNICAL_DESIGN §10.3) becomes the documented one-time
+    post-install step for the default engine.
+  - The §15 "Recall < 95% on the benchmark" trigger in
+    TECHNICAL_DESIGN remains the project's empirical check on this
+    decision: an in-tree benchmark of Tesseract vs PaddleOCR
+    against the curated corpus is a v0.1 release-gate item (DoD
+    §16). If Tesseract meets NFR-2.1 within a meaningful margin
+    on the curated corpus, this ADR is revisited and the default
+    reverted in favour of the smaller install footprint.
+  - **Supersedes** the corresponding Tesseract-default framing in
+    [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md)
+    (§A.1 OCR row, §A.3 distribution con, §Operational
+    Considerations dependency-footprint paragraph, §Final
+    Recommendation reasoning, and the corresponding open
+    question). That document is updated in the same change as
+    this ADR; the two are intended to ship together.
 
 ---
 

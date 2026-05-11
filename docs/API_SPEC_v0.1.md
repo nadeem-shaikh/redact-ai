@@ -85,7 +85,7 @@ ImageOutput
 Manifest
   ├── policy_id        : string
   ├── policy_version   : semver string
-  ├── input_hash       : sha256 of normalised input
+  ├── input_hash       : sha256 of the original input bytes (pre-preprocessing)
   ├── created_at       : ISO 8601 timestamp
   ├── stats            : { redactions_total, by_category: {…} }
   └── findings         : [Finding]
