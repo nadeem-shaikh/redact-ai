@@ -100,7 +100,7 @@ once the per-OS code is justified.
 ### A.2 Pros
 
 - **Fastest path to a working MVP.** Every pipeline stage has a mature, well-documented Python library.
-- **Strong ML ecosystem available** *if and when* future detectors require it (spaCy, Hugging Face, transformers) — deliberately **not** pulled into the v0.1 baseline.
+- **Strong ML ecosystem available** *if and when* future detectors require it (spaCy, Hugging Face, transformers). `spacy` joins the v0.1 baseline per [ADR-011](./DECISIONS.md) to back the ID-006 NER name detector; heavier transformer NER and analyzer frameworks remain deferred.
 - **Excellent OCR options** — PaddleOCR is the v0.1 default for screenshot accuracy (per [ADR-008](./DECISIONS.md)); Tesseract is retained as a slim-footprint opt-in (`[ocr-tesseract]`).
 - **Strong dev experience**: REPL-driven iteration on detection rules, rich notebook tooling.
 - **Modular by default** — Python's import model maps cleanly to the pipeline contracts in `ARCHITECTURE_v0.1.md`.
@@ -276,10 +276,13 @@ emoji). Tesseract is retained as an opt-in
 configurations) or where install footprint is the dominant
 constraint.
 
-NLP-based detectors (spaCy, transformer NER, hosted analyzer
-frameworks) are **not** part of the v0.1 stack. They are
-re-evaluated only when project-owned regex/dictionary detectors miss
-too much against the golden corpus.
+spaCy joins the v0.1 stack per [ADR-011](./DECISIONS.md) to back the
+ID-006 NER name detector after field testing showed ID-001's
+dictionary recall was inadequate for non-Western names. Transformer
+NER and hosted analyzer frameworks (e.g. Presidio, Hugging Face
+sequence-tagging models) remain deferred; they are re-evaluated only
+when ID-006 + ID-001 together miss too much against the golden
+corpus.
 
 ### Licensing
 
@@ -304,7 +307,9 @@ due-diligence purposes.
 - `pipx install 'redact-ai[ocr-tesseract]'` ≈ **50–80 MB** for the
   Tesseract-only fallback (a system Tesseract install is required
   separately).
-- The default install carries **no NLP/transformer dependencies**.
+- The default install carries `spacy==3.7.5` plus the
+  `en_core_web_md` model (~100 MB combined) per [ADR-011](./DECISIONS.md);
+  transformer-based NLP dependencies remain absent from the default.
 
 ### CI matrix
 

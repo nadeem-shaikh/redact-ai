@@ -252,4 +252,66 @@ Entry template:
 
 ---
 
+## ADR-011 — Add spaCy NER as a default name detector (ID-006)
+
+- **Date:** 2026-05-11
+- **Status:** Accepted
+- **Context:** The v0.1 `FullNameDetector` (ID-001) is dictionary-driven
+  using ~744 US-centric English given/family names
+  (`names_given_en_us.txt`, `names_family_en_us.txt`). Field testing on
+  a GitHub-profile screenshot showed it silently missing common
+  non-Western names (e.g. "Nadeem Shaikh") because neither token is in
+  the dictionary. This is a recall failure of the kind ADR-005
+  ("fail closed") and NFR-2.1 (≥95% recall) explicitly call out as a
+  safety issue, not a quality issue.
+  [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md) §A.2 and
+  §Operational Considerations anticipated this exact moment: "spaCy,
+  Hugging Face, transformers … re-evaluated only when project-owned
+  regex/dictionary detectors miss too much against the golden corpus."
+- **Decision:** Add a new IDENTITY detector **ID-006
+  PersonNameNerDetector** that runs spaCy NER on every OCR line and
+  emits a finding for every `PERSON` entity. `spacy==3.7.5` joins the
+  required dependency set; `en_core_web_md` is a one-time
+  post-install download (the small model is rejected because it
+  requires sentential context that OCR rarely provides — a bare
+  "Nadeem Shaikh" on a screenshot line is missed by `_sm` and caught
+  by `_md`). ID-006 is enabled by default in the strict policy at
+  `threshold: medium`. ID-001 is retained unchanged as a precision
+  layer; both detectors can co-fire on the same span and the merge
+  stage de-duplicates within IDENTITY.
+- **Consequences:**
+  - Default install footprint grows by ~100 MB (spaCy library
+    ~50 MB + `en_core_web_md` weights ~50 MB), staying well under
+    NFR-1.2's 1 GB ceiling.
+  - Server cold-start is unaffected because the spaCy model is
+    lazy-loaded on first detection (cached module-level
+    afterwards), matching the existing "Lazy-load OCR + detectors
+    after the server is bound" pattern documented in
+    [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md)
+    §Risk Register. First-request latency rises by ~2 s; the 3 s
+    end-to-end budget (NFR-1.1) is preserved for steady-state
+    requests.
+  - Local-first (ADR-002, NFR-3.1) preserved: the model runs
+    entirely on-device. The one-time `spacy download` is an
+    install-time fetch, not a runtime call.
+  - Determinism (NFR-2.3) preserved: spaCy NER uses greedy
+    decoding and is deterministic for a fixed model version and
+    input.
+  - Fail-closed (ADR-005) preserved: if the spaCy model is not
+    available at runtime, the detector raises `E_POLICY` rather
+    than silently returning empty findings.
+  - Supersedes the "deliberately not pulled into the v0.1
+    baseline" note in
+    [`TECH_STACK_OPTIONS_v0.1.md`](./TECH_STACK_OPTIONS_v0.1.md)
+    §A.2 and the "not part of the v0.1 stack" note in
+    §Operational Considerations. Those two passages are updated
+    in the same change as this ADR.
+  - The §15 / NFR-2.1 95% recall floor remains the empirical
+    check. If a future benchmark shows ID-006 underperforming
+    transformer-based NER on the curated corpus, this ADR is
+    revisited and a transformer model (e.g. `en_core_web_trf`)
+    becomes the default.
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.

@@ -105,6 +105,48 @@ Locale: **`en-US` only in v0.1**.
   least one digit and one letter.
 - **Confidence:** `MEDIUM` (no national checksum in v0.1).
 
+### ID-006 — Personal names via statistical NER
+
+- **Approach:** Statistical NER. Complements ID-001 by catching
+  names that are absent from the bundled US-centric given/family
+  dictionaries (non-Western names, novel spellings, hyphenated
+  surnames). Runs entirely on-device — no network calls (ADR-002,
+  ADR-011).
+- **Engine:** spaCy with `en_core_web_md` by default. The medium
+  model recognises names without sentential context (e.g. a bare
+  "Nadeem Shaikh" on its own line, which is the dominant input shape
+  for screenshots) whereas `en_core_web_sm` requires surrounding
+  punctuation. The model is overridable via the policy
+  `overrides.model` field (e.g. `en_core_web_sm` for slimmer installs,
+  `en_core_web_lg`/`_trf` for higher recall, or a multilingual model).
+- **Match rule:** For every OCR line, run the spaCy pipeline (NER
+  components only — `lemmatizer`, `tagger`, and `attribute_ruler`
+  are disabled to keep cold-start under NFR-1.3) and emit a finding
+  for every entity whose label is `PERSON`. Character offsets are
+  mapped back to OCR tokens via the same `tokens_covering` helper
+  used by regex-based detectors.
+- **Confidence:**
+  - `HIGH` if the matched entity spans two or more OCR tokens (a
+    full first-last pair is much less likely to be a spurious
+    capitalised noun).
+  - `MEDIUM` for single-token PERSON entities.
+  - OCR-derived confidence floor still applies via
+    `cap_confidence`.
+- **Bbox:** Union of matched-token bboxes.
+- **Determinism:** spaCy NER with greedy decoding is deterministic
+  for a fixed model version and input (NFR-2.3). The runtime pins
+  `spacy==3.7.5`; the `en_core_web_md` version installed by the
+  user is recorded in the manifest header for reproducibility.
+- **Install:** `spacy` is a required dependency; the model is a
+  one-time download (`python -m spacy download en_core_web_md`).
+  If the model is missing at runtime, the detector raises
+  `E_POLICY` with a clear hint (consistent with ADR-005
+  fail-closed semantics).
+- **Trade-off:** ID-001 (dictionary) and ID-006 (NER) can both fire
+  on the same span. The merge stage already de-duplicates
+  overlapping findings within a category, so the user sees one
+  redaction per span; the manifest records both rule IDs for audit.
+
 ---
 
 ## CONTACT
@@ -329,6 +371,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "ID-003": GovernmentIdDetector,
     "ID-004": PassportDetector,
     "ID-005": DriverLicenceDetector,
+    "ID-006": PersonNameNerDetector,
     "CO-001": EmailDetector,
     "CO-002": PhoneDetector,
     "CO-003": PostalAddressDetector,

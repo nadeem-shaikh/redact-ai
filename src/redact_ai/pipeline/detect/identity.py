@@ -1,12 +1,13 @@
-"""IDENTITY detectors: ID-001 through ID-005 (DETECTORS_v0.1)."""
+"""IDENTITY detectors: ID-001 through ID-006 (DETECTORS_v0.1)."""
 
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 from importlib.resources import files
-from typing import ClassVar
+from typing import Any, ClassVar
 
+from redact_ai.errors import policy_error
 from redact_ai.models.document import Block, Document, Line, Token
 from redact_ai.models.findings import Category, Confidence, Finding
 from redact_ai.pipeline.detect.base import (
@@ -369,4 +370,85 @@ class DriverLicenceDetector:
                                 )
                             )
                             break
+        return out
+
+
+_DEFAULT_NER_MODEL = "en_core_web_md"
+_NER_MODEL_INSTALL_HINT = (
+    "Run `python -m spacy download en_core_web_md` once after install. "
+    "See ADR-011 in docs/DECISIONS.md."
+)
+
+
+@lru_cache(maxsize=2)
+def _load_spacy_ner(model_name: str) -> Any:
+    try:
+        import spacy
+    except ImportError as exc:  # pragma: no cover - spacy is a required dep
+        raise RuntimeError(
+            "spaCy is required for ID-006 PersonNameNerDetector but is not installed."
+        ) from exc
+    try:
+        nlp = spacy.load(
+            model_name,
+            disable=["parser", "lemmatizer", "tagger", "attribute_ruler"],
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"spaCy model '{model_name}' is not available. {_NER_MODEL_INSTALL_HINT}"
+        ) from exc
+    return nlp
+
+
+class PersonNameNerDetector:
+    """ID-006 — statistical NER for personal names (PERSON entities).
+
+    Complements ID-001 by catching names absent from the bundled
+    given/family dictionaries (non-Western names, novel spellings).
+    Runs entirely on-device via spaCy (ADR-002, ADR-011).
+    """
+
+    rule_id: ClassVar[str] = "ID-006"
+    category: ClassVar[Category] = "IDENTITY"
+
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]:
+        model_name = _DEFAULT_NER_MODEL
+        for det in policy.detectors:
+            if det.id == self.rule_id:
+                model_override = det.overrides.get("model")
+                if model_override is not None:
+                    if not isinstance(model_override, str) or not model_override:
+                        raise policy_error(policy.id, "ID-006.model must be a non-empty string")
+                    model_name = model_override
+                break
+        try:
+            nlp = _load_spacy_ner(model_name)
+        except RuntimeError as exc:
+            raise policy_error(policy.id, str(exc)) from exc
+        out: list[Finding] = []
+        for page in doc.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    text, spans = line_text_and_offsets(line)
+                    if not text.strip():
+                        continue
+                    parsed = nlp(text)
+                    for ent in parsed.ents:
+                        if ent.label_ != "PERSON":
+                            continue
+                        covered = tokens_covering(spans, ent.start_char, ent.end_char)
+                        if not covered:
+                            continue
+                        ocr_conf = confidence_from_tokens(covered)
+                        detector_conf: Confidence = "high" if len(covered) >= 2 else "medium"
+                        out.append(
+                            Finding(
+                                rule_id=self.rule_id,
+                                category=self.category,
+                                bbox=union_bboxes(t.bbox for t in covered),
+                                confidence=cap_confidence(detector_conf, ocr_conf),
+                                matched_text=ent.text,
+                                page_index=page.index,
+                            )
+                        )
         return out
