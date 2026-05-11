@@ -48,7 +48,9 @@ jobs:
         run: uv sync --extra dev
 
       - name: Download spaCy NER model (ID-006, ADR-011)
-        run: uv run python -m spacy download en_core_web_md
+        run: |
+          uv pip install --no-deps \
+            https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl
 
       - name: Lint (ruff check)
         run: uv run ruff check src tests
