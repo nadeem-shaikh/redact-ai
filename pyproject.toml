@@ -124,6 +124,10 @@ addopts = "-ra"
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:pkg_resources.*",
+    # spaCy 3.7.5 imports click.parser.split_arg_string, which is
+    # deprecated in click 8.3+ (removed in 9.0). Tracked upstream;
+    # ignore until spaCy releases a fix.
+    "ignore:Importing 'parser.split_arg_string' is deprecated.*:DeprecationWarning",
 ]
 
 [tool.coverage.run]

@@ -389,7 +389,10 @@ def _load_spacy_ner(model_name: str) -> Any:
             "spaCy is required for ID-006 PersonNameNerDetector but is not installed."
         ) from exc
     try:
-        nlp = spacy.load(model_name, disable=["lemmatizer", "tagger", "attribute_ruler"])
+        nlp = spacy.load(
+            model_name,
+            disable=["parser", "lemmatizer", "tagger", "attribute_ruler"],
+        )
     except OSError as exc:
         raise RuntimeError(
             f"spaCy model '{model_name}' is not available. {_NER_MODEL_INSTALL_HINT}"

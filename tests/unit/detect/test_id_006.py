@@ -11,17 +11,28 @@ from tests.unit.detect._helpers import make_doc
 
 spacy = pytest.importorskip("spacy")
 
-try:
-    spacy.load("en_core_web_md", disable=["lemmatizer", "tagger", "attribute_ruler"])
-except OSError:
-    pytest.skip(
-        "en_core_web_md not available; run `python -m spacy download en_core_web_md`",
-        allow_module_level=True,
-    )
+
+def _require_en_core_web_md() -> None:
+    """Skip individual tests when the model is absent.
+
+    Scoped per-test so ``test_missing_model_raises_policy_error`` can
+    still run when the model is intentionally unavailable — that test
+    is the model-absent fail-closed coverage.
+    """
+    try:
+        spacy.load(
+            "en_core_web_md",
+            disable=["parser", "lemmatizer", "tagger", "attribute_ruler"],
+        )
+    except OSError:
+        pytest.skip(
+            "en_core_web_md not available; run `python -m spacy download en_core_web_md`",
+        )
 
 
 def test_non_western_name_detected() -> None:
     """The case that motivated ADR-011: ID-001 dictionary misses 'Nadeem Shaikh'."""
+    _require_en_core_web_md()
     doc = make_doc(["Nadeem Shaikh"])
     out = PersonNameNerDetector().detect(doc, load_default_policy())
     assert len(out) >= 1
@@ -30,6 +41,7 @@ def test_non_western_name_detected() -> None:
 
 
 def test_two_token_name_is_high_confidence() -> None:
+    _require_en_core_web_md()
     doc = make_doc(["Maria Garcia visited yesterday"])
     out = PersonNameNerDetector().detect(doc, load_default_policy())
     person_findings = [f for f in out if "Maria" in f.matched_text or "Garcia" in f.matched_text]
@@ -38,6 +50,7 @@ def test_two_token_name_is_high_confidence() -> None:
 
 
 def test_no_person_no_finding() -> None:
+    _require_en_core_web_md()
     doc = make_doc(["The quick brown fox jumps over the lazy dog"])
     out = PersonNameNerDetector().detect(doc, load_default_policy())
     assert out == []
