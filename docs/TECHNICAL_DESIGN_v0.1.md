@@ -1229,51 +1229,52 @@ redact-ai/                              # repo root
 │   ├── DECISIONS.md
 │   ├── ROADMAP.md
 │   └── CONTRIBUTING.md
-├── redact_ai/                          # NEW v0.1 package
-│   ├── __init__.py                     # re-exports public types
-│   ├── types.py                        # all Pydantic models from §6
-│   ├── ingestor.py
-│   ├── ocr/
-│   │   ├── __init__.py
-│   │   ├── contract.py                 # OcrEngine Protocol + Hints + NormalisedImage
-│   │   ├── paddle.py                   # PaddleOcrEngine (default)
-│   │   └── tesseract.py                # TesseractOcrEngine (extras)
-│   ├── detect/
-│   │   ├── __init__.py
-│   │   ├── contract.py                 # Detector Protocol + BaseDetector
-│   │   ├── identity.py                 # ID-001..ID-005
-│   │   ├── contact.py                  # CO-001..CO-003
-│   │   ├── financial.py                # FI-001..FI-004 (incl. Luhn)
-│   │   ├── credentials.py              # CR-001..CR-003
-│   │   ├── health.py                   # HE-001 only in v0.1
-│   │   ├── location.py                 # LO-001
-│   │   └── registry.py                 # rule_id -> Detector lookup
-│   ├── redact/
-│   │   ├── __init__.py
-│   │   ├── contract.py                 # Redactor Protocol
-│   │   └── block.py                    # BlockRedactor
-│   ├── report/
-│   │   ├── __init__.py
-│   │   └── manifest.py                 # Reporter + canonical_form()
-│   ├── policy/
-│   │   ├── __init__.py
-│   │   ├── loader.py
-│   │   └── builtins/
-│   │       ├── default.json
-│   │       └── strict.json
-│   ├── server/
-│   │   ├── __init__.py
-│   │   ├── app.py                      # create_app()
-│   │   ├── routes.py                   # /redact, /policies, /healthz, /
-│   │   ├── middleware.py               # OriginHostValidator, CsrfValidator
-│   │   └── static/
-│   │       ├── index.html              # drag-drop page
-│   │       ├── app.js
-│   │       └── app.css
-│   ├── pipeline.py                     # redact(input, policy) -> RedactionResult
-│   ├── cli.py                          # `redact-ai` console entrypoint
-│   ├── errors.py                       # typed exceptions + ErrorEnvelope mapper
-│   └── logging.py                      # SafeFormatter + dictConfig
+├── src/                                # src-layout per ADR-010
+│   └── redact_ai/                      # NEW v0.1 package
+│       ├── __init__.py                 # re-exports public types
+│       ├── types.py                    # all Pydantic models from §6
+│       ├── ingestor.py
+│       ├── ocr/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # OcrEngine Protocol + Hints + NormalisedImage
+│       │   ├── paddle.py               # PaddleOcrEngine (default)
+│       │   └── tesseract.py            # TesseractOcrEngine (extras)
+│       ├── detect/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # Detector Protocol + BaseDetector
+│       │   ├── identity.py             # ID-001..ID-005
+│       │   ├── contact.py              # CO-001..CO-003
+│       │   ├── financial.py            # FI-001..FI-004 (incl. Luhn)
+│       │   ├── credentials.py          # CR-001..CR-003
+│       │   ├── health.py               # HE-001 only in v0.1
+│       │   ├── location.py             # LO-001
+│       │   └── registry.py             # rule_id -> Detector lookup
+│       ├── redact/
+│       │   ├── __init__.py
+│       │   ├── contract.py             # Redactor Protocol
+│       │   └── block.py                # BlockRedactor
+│       ├── report/
+│       │   ├── __init__.py
+│       │   └── manifest.py             # Reporter + canonical_form()
+│       ├── policy/
+│       │   ├── __init__.py
+│       │   ├── loader.py
+│       │   └── builtins/
+│       │       ├── default.json
+│       │       └── strict.json
+│       ├── server/
+│       │   ├── __init__.py
+│       │   ├── app.py                  # create_app()
+│       │   ├── routes.py               # /redact, /policies, /healthz, /
+│       │   ├── middleware.py           # OriginHostValidator, CsrfValidator
+│       │   └── static/
+│       │       ├── index.html          # drag-drop page
+│       │       ├── app.js
+│       │       └── app.css
+│       ├── pipeline.py                 # redact(input, policy) -> RedactionResult
+│       ├── cli.py                      # `redact-ai` console entrypoint
+│       ├── errors.py                   # typed exceptions + ErrorEnvelope mapper
+│       └── logging.py                  # SafeFormatter + dictConfig
 ├── tests/
 │   ├── unit/
 │   │   ├── test_ingestor.py
@@ -1324,13 +1325,13 @@ risk table in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
 | Risk | Mitigation | Trigger to revisit |
 | --- | --- | --- |
 | `paddlepaddle` wheel availability gaps on Windows / arm64 | CI matrix tests both; documented Tesseract `[ocr-tesseract]` extras path with `--ocr-engine tesseract` | Three or more user-reported install failures in a release window |
-| PaddleOCR model download adds first-run latency | Prefetch weights at install time via a documented post-install step; `/healthz` blocks until model is loaded | Cold-start exceeds NFR-1.3 in a fresh environment |
+| PaddleOCR model download adds first-run latency | Prefetch weights at install time via a documented post-install step; `/readyz` remains 503 until model warm-up completes (`/healthz` is liveness only — see §5.8 / §11) | Cold-start exceeds NFR-1.3 in a fresh environment |
 | First-run OS firewall prompt confuses users | README banner; loopback-only minimises surface area | Repeated user reports |
 | OCR misses subtle PII (low-contrast or stylised) | Accuracy benchmark against the golden corpus; UI surfaces low-confidence regions; future migration to PaddleOCR-PP-OCRv4 if accuracy regresses | Recall < 95% on the benchmark |
 | Pixel-zero post-condition false positive on lossy formats | Re-encode the redacted image in a lossless intermediate, then to the target format, with a final read-back verification | Test failure on a JPEG / WebP golden |
 | Concurrent uploads exhaust memory | Per-process upload-size cap (25 MB); PaddleOCR call serialised by a `threading.Lock` | OOM observed under stress test |
 | Drag-drop UI inconsistent across browsers | `<input type=file>` fallback is always rendered; tested on Chromium, Firefox, Safari | Drag-drop reliability blocks adoption |
-| FastAPI / Uvicorn cold-start drift | Lazy-load OCR after the listener is bound; `/healthz` gates readiness | NFR-1.3 regression |
+| FastAPI / Uvicorn cold-start drift | Lazy-load OCR after the listener is bound; `/readyz` gates readiness (`/healthz` is liveness only — see §5.8 / §11) | NFR-1.3 regression |
 | `E_REDACTION` post-condition triggers spuriously on alpha channels | `BlockRedactor` flattens to RGB before sampling; alpha is restored on encode | Spurious `E_REDACTION` on PNG goldens |
 | Policy JSON drift across versions | Manifests embed `policy_id` + `policy_version`; loader rejects unknown `rule_id`s with a clear error | A user reports a policy that won't load after upgrade |
 
