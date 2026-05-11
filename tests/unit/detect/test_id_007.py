@@ -136,7 +136,11 @@ def test_pipeline_escalates_when_all_vision_detectors_fail(
         def detect(self, image, policy):  # type: ignore[no-untyped-def]
             raise RuntimeError("boom")
 
-    monkeypatch.setitem(registry.VISION_REGISTRY, "ID-007", _AlwaysFailFace)
+    # Force every entry in VISION_REGISTRY to fail so the "all vision
+    # detectors fail" precondition holds even if a new vision detector
+    # lands later. tuple() snapshots the keys before monkeypatch mutates.
+    for detector_id in tuple(registry.VISION_REGISTRY):
+        monkeypatch.setitem(registry.VISION_REGISTRY, detector_id, _AlwaysFailFace)
 
     # Build a minimal in-memory PNG so we can call the real ingest stage.
     import io
