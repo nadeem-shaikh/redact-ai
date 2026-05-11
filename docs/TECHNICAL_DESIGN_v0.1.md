@@ -1339,7 +1339,7 @@ risk table in [`SECURITY_v0.1.md`](./SECURITY_v0.1.md).
 | PaddleOCR model download adds first-run latency | Prefetch weights at install time via a documented post-install step; `/readyz` remains 503 until model warm-up completes (`/healthz` is liveness only — see §5.8 / §11) | Cold-start exceeds NFR-1.3 in a fresh environment |
 | First-run OS firewall prompt confuses users | README banner; loopback-only minimises surface area | Repeated user reports |
 | OCR misses subtle PII (low-contrast or stylised) | Accuracy benchmark against the golden corpus; UI surfaces low-confidence regions; future migration to PaddleOCR-PP-OCRv4 if accuracy regresses | Recall < 95% on the benchmark |
-| Pixel-zero post-condition false positive on lossy formats | Re-encode the redacted image in a lossless intermediate, then to the target format, with a final read-back verification | Test failure on a JPEG / WebP golden |
+| Redaction post-condition false positive on lossy formats | Re-encode the redacted image in a lossless intermediate, then to the target format, with final read-back verification (exact match for lossless; per-channel deviation ≤ 8 LSB for lossy outputs per §8.1) | Test failure on a JPEG / WebP golden |
 | Concurrent uploads exhaust memory | Per-process upload-size cap (25 MB); PaddleOCR call serialised by a `threading.Lock` | OOM observed under stress test |
 | Drag-drop UI inconsistent across browsers | `<input type=file>` fallback is always rendered; tested on Chromium, Firefox, Safari | Drag-drop reliability blocks adoption |
 | FastAPI / Uvicorn cold-start drift | Lazy-load OCR after the listener is bound; `/readyz` gates readiness (`/healthz` is liveness only — see §5.8 / §11) | NFR-1.3 regression |
@@ -1364,7 +1364,7 @@ mapping (each "proof" is a CI-runnable test or check):
 | 7 | Cold-start under 2 s to first `/healthz` 200 | `tests/e2e/test_cold_start.py` |
 | 8 | `Origin` / `Host` validator rejects cross-origin and non-loopback requests | `tests/integration/test_security.py` |
 | 9 | CSRF validator rejects missing or invalid tokens | same |
-| 10 | Pixel-zero post-condition holds on every TC-* golden | `tests/unit/test_redactor_block.py` |
+| 10 | Redaction post-condition holds on every TC-* golden (exact for lossless; per-channel ≤ 8 LSB for lossy per §8.1) | `tests/unit/test_redactor_block.py` |
 | 11 | Manifest excludes `matched_text` by default | `tests/unit/test_reporter_canonical.py` |
 | 12 | Default policy is `strict`; both `default.json` and `strict.json` ship as package data | `tests/unit/test_policy_loader.py` |
 | 13 | `README.md` documentation index links this TDD | `grep -n 'TECHNICAL_DESIGN_v0.1.md' README.md` |
