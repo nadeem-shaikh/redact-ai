@@ -147,6 +147,22 @@ Locale: **`en-US` only in v0.1**.
   on the same span. The merge stage already de-duplicates
   overlapping findings within a category, so the user sees one
   redaction per span; the manifest records both rule IDs for audit.
+- **Variant scanning:** after the NER pass, ID-006 derives slug-style
+  variants of every detected `PERSON` and re-scans the document for
+  them. Generated forms include:
+  - Combined slug forms (`nadeem-shaikh`, `nadeem_shaikh`,
+    `nadeem.shaikh`, `nadeemshaikh`).
+  - First-initial-plus-last forms (`nshaikh`, `n-shaikh`,
+    `n.shaikh`).
+  - Standalone first and last names alone (`nadeem`, `shaikh`) so
+    that handles like `nadeem/redact-ai` or `shaikh/redact-ai` are
+    caught.
+
+  This catches GitHub-style usernames, email locals, and similar
+  handles that share the same identity but aren't recognised by NER
+  themselves. Variants shorter than 5 characters are excluded to
+  avoid generic matches; variant findings are emitted at `medium`
+  confidence.
 
 ---
 
