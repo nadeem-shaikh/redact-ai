@@ -415,9 +415,7 @@ class PersonNameNerDetector:
                 model_override = det.overrides.get("model")
                 if model_override is not None:
                     if not isinstance(model_override, str) or not model_override:
-                        raise policy_error(
-                            policy.id, "ID-006.model must be a non-empty string"
-                        )
+                        raise policy_error(policy.id, "ID-006.model must be a non-empty string")
                     model_name = model_override
                 break
         try:
@@ -439,9 +437,7 @@ class PersonNameNerDetector:
                         if not covered:
                             continue
                         ocr_conf = confidence_from_tokens(covered)
-                        detector_conf: Confidence = (
-                            "high" if len(covered) >= 2 else "medium"
-                        )
+                        detector_conf: Confidence = "high" if len(covered) >= 2 else "medium"
                         out.append(
                             Finding(
                                 rule_id=self.rule_id,
