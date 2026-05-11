@@ -42,6 +42,11 @@ log = get_logger("server")
 
 router = APIRouter()
 
+# Hard cap for inline manifest in response headers. 6 KB stays comfortably
+# under the typical 8 KB header-size ceiling enforced by reverse proxies
+# and the default uvicorn/h11 limit.
+_MANIFEST_HEADER_LIMIT: int = 6 * 1024
+
 
 @router.get("/healthz", response_class=JSONResponse)
 async def healthz() -> JSONResponse:
@@ -175,11 +180,16 @@ async def post_redact(
     stats_header = (
         f"redactions={result.manifest.stats.redactions_total};" f"categories={len(by_category)}"
     )
-    headers = {
-        "X-Redaction-Manifest": manifest_b64,
+    headers: dict[str, str] = {
         "X-Redaction-Manifest-Sha256": manifest_sha,
         "X-Redaction-Stats": stats_header,
     }
+    # Common proxy / framework header-size limits sit around 8 KB. Keep
+    # the hash + stats unconditional, and only attach the full manifest
+    # when it comfortably fits — large manifests will need the JSON
+    # envelope branch (Accept: application/json) anyway.
+    if len(manifest_b64) <= _MANIFEST_HEADER_LIMIT:
+        headers["X-Redaction-Manifest"] = manifest_b64
     return Response(
         content=result.image.bytes,
         media_type=result.image.mime_type,

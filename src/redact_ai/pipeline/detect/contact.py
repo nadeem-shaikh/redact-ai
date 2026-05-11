@@ -69,9 +69,14 @@ class PhoneDetector:
             for block in page.blocks:
                 for line in block.lines:
                     text, spans = line_text_and_offsets(line)
-                    if _PHONE_NEGATIVE.search(text):
-                        continue
                     for match in _PHONE_RE.finditer(text):
+                        # Scope the negative heuristic to a window around the
+                        # match so one unrelated token ("version 1.2.3.4") on
+                        # the same line can't suppress a real phone number.
+                        ctx_start = max(0, match.start() - 16)
+                        ctx_end = min(len(text), match.end() + 16)
+                        if _PHONE_NEGATIVE.search(text[ctx_start:ctx_end]):
+                            continue
                         raw = match.group(0)
                         digits = re.sub(r"\D", "", raw)
                         if not 10 <= len(digits) <= 15:

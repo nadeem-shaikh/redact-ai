@@ -53,12 +53,17 @@ class BBox(BaseModel):
         return BBox(x=x, y=y, w=x2 - x, h=y2 - y)
 
     def expanded(self, padding: int, max_w: int, max_h: int) -> BBox:
-        """Grow the bbox by ``padding`` px on each side, clipped to bounds."""
+        """Grow the bbox by ``padding`` px on each side, clipped to bounds.
+
+        If the bbox already sits flush against ``max_w``/``max_h`` the clip
+        could produce ``w == 0``; clamp to a minimum of 1 px on each axis
+        so the resulting ``BBox`` always satisfies ``w > 0`` and ``h > 0``.
+        """
         x = max(self.x - padding, 0)
         y = max(self.y - padding, 0)
         x2 = min(self.x2 + padding, max_w)
         y2 = min(self.y2 + padding, max_h)
-        return BBox(x=x, y=y, w=x2 - x, h=y2 - y)
+        return BBox(x=x, y=y, w=max(x2 - x, 1), h=max(y2 - y, 1))
 
 
 class Token(BaseModel):

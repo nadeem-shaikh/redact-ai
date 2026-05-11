@@ -60,7 +60,13 @@ class CustomRegexDetector:
             words = overrides.get("words")
             if not isinstance(words, list) or not all(isinstance(w, str) for w in words):
                 raise policy_error(policy.id, "CU-001.words must be a list of strings")
-            regex = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b")
+            cleaned = [w.strip() for w in words if w.strip()]
+            if not cleaned:
+                raise policy_error(
+                    policy.id,
+                    "CU-001.words must include at least one non-empty value",
+                )
+            regex = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in cleaned) + r")\b")
         out: list[Finding] = []
         for page in doc.pages:
             for block in page.blocks:

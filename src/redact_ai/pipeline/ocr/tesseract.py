@@ -101,7 +101,7 @@ def _compose_page(data: dict[str, Any], *, page_size: tuple[int, int]) -> Page:
             w = max(int(data["width"][idx]), 1)
             h = max(int(data["height"][idx]), 1)
             conf = _scale_confidence(data["conf"][idx])
-            tok_id = f"t-0-{block_id}-{line_id}-{word_num}"
+            tok_id = f"t-0-{block_id}-{par_id}-{line_id}-{word_num}"
             tokens.append(
                 Token(
                     id=tok_id,
@@ -114,7 +114,7 @@ def _compose_page(data: dict[str, Any], *, page_size: tuple[int, int]) -> Page:
             continue
         line_bbox = _union(t.bbox for t in tokens)
         line = Line(
-            id=f"l-0-{block_id}-{line_id}",
+            id=f"l-0-{block_id}-{par_id}-{line_id}",
             bbox=line_bbox,
             tokens=tuple(tokens),
             reading_order=reading_order,

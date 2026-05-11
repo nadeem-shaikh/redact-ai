@@ -41,12 +41,20 @@ def load_default_policy() -> Policy:
 
 
 def load_policy(source: str | Path) -> Policy:
-    """Load a policy from a YAML file path or a YAML string."""
+    """Load a policy from a YAML file path or a YAML string.
+
+    File-system errors are wrapped into ``E_POLICY`` so callers see the
+    same error shape they would for a malformed YAML body.
+    """
     if isinstance(source, Path) or (
         isinstance(source, str) and "\n" not in source and Path(source).exists()
     ):
-        text = Path(source).read_text(encoding="utf-8")
-        label = str(source)
+        path = Path(source)
+        label = str(path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise policy_error(label, f"unable to read policy file: {exc}") from exc
     else:
         text = source
         label = "<inline>"

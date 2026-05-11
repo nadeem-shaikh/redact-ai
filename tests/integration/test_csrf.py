@@ -63,6 +63,9 @@ def test_csrf_round_trip_allows_upload() -> None:
         files={"image": ("x.png", _png_bytes(), "image/png")},
         headers={"X-Redact-CSRF": token or ""},
     )
-    # Accept either a redacted image or a JSON envelope. The point is
-    # not 403/E_CSRF.
-    assert response.status_code != 403
+    # Two guarantees: we are not blocked by CSRF, and the server didn't
+    # 5xx on the way through. (We don't check status==200 because
+    # downstream OCR variance is out of scope for this test.)
+    assert response.status_code < 500
+    if response.status_code == 403:
+        assert response.json()["error"]["code"] != "E_CSRF"

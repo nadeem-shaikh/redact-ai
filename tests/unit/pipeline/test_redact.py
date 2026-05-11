@@ -155,13 +155,50 @@ def test_block_style_jpeg_round_trip() -> None:
     Image.open(io.BytesIO(out.bytes))
 
 
-def test_block_style_rgba_input() -> None:
-    img = Image.new("RGBA", (200, 100), (255, 255, 255, 255))
+def test_block_style_rgba_png_preserves_alpha() -> None:
+    """PNG output keeps the alpha channel — only JPEG forces RGB."""
+    img = Image.new("RGBA", (200, 100), (255, 255, 255, 128))
     ingested = IngestedImage(
         original=img,
         normalised=img.convert("RGB"),
         mime_type="image/png",
         pil_format="PNG",
+        transform=AffineTransform.identity(),
+    )
+    out = render_redacted(ingested, [_finding()], BlockStyle())
+    img2 = Image.open(io.BytesIO(out.bytes))
+    assert img2.mode == "RGBA"
+
+
+def test_pixelate_style_rgba_png_preserves_alpha() -> None:
+    """Pixelate fills an RGBA region with an RGBA solid; alpha is opaque."""
+    img = Image.new("RGBA", (200, 100), (200, 100, 50, 128))
+    ingested = IngestedImage(
+        original=img,
+        normalised=img.convert("RGB"),
+        mime_type="image/png",
+        pil_format="PNG",
+        transform=AffineTransform.identity(),
+    )
+    out = render_redacted(ingested, [_finding()], PixelateStyle(padding_px=0))
+    img2 = Image.open(io.BytesIO(out.bytes))
+    assert img2.mode == "RGBA"
+    region = img2.crop((10, 10, 90, 40))
+    pixels = list(region.getdata())
+    # The redacted region is one solid colour with full alpha.
+    unique = set(pixels)
+    assert len(unique) == 1
+    assert next(iter(unique))[3] == 255
+
+
+def test_block_style_rgba_jpeg_drops_alpha() -> None:
+    """JPEG can't store alpha, so RGBA input is converted to RGB."""
+    img = Image.new("RGBA", (200, 100), (255, 255, 255, 255))
+    ingested = IngestedImage(
+        original=img,
+        normalised=img.convert("RGB"),
+        mime_type="image/jpeg",
+        pil_format="JPEG",
         transform=AffineTransform.identity(),
     )
     out = render_redacted(ingested, [_finding()], BlockStyle())

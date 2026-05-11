@@ -35,6 +35,7 @@ def test_origin_evil_rejected() -> None:
         },
     )
     assert response.status_code == 403
+    assert response.json()["error"]["code"] == "E_ORIGIN"
 
 
 def test_origin_localhost_allowed() -> None:

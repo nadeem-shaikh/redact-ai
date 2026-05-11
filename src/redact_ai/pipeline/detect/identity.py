@@ -198,9 +198,6 @@ def _has_dob_context(block: Block, target_line: Line) -> bool:
             text = " ".join(t.text for t in line.tokens)
             if _DOB_CONTEXT.search(text):
                 return True
-        text = " ".join(t.text for t in line.tokens)
-        if _DOB_CONTEXT.search(text) and line is target_line:
-            return True
     return False
 
 

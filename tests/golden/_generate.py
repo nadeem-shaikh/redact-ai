@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -35,11 +36,14 @@ class Spec:
     post: Callable[[Image.Image], Image.Image] | None = None
 
 
-def _font(size: int) -> ImageFont.ImageFont:
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size=size)
-    except OSError:
-        return ImageFont.load_default()
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    """Load the vendored DejaVuSans-Bold.ttf so fixtures are byte-identical
+    across macOS / Linux / Windows. Falling back to system fonts produced
+    macOS-only OCR failures because the system fallback was a bitmap font
+    that Tesseract couldn't read."""
+    font_path = files("redact_ai.resources").joinpath("DejaVuSans-Bold.ttf")
+    with font_path.open("rb") as fh:
+        return ImageFont.truetype(fh, size=size)
 
 
 def _render(spec: Spec) -> Image.Image:
@@ -198,7 +202,7 @@ SPECS: list[Spec] = [
 
 
 def write_unsupported_fixture() -> None:
-    """TC-010 — write a 1-byte BMP-like placeholder for the unsupported-format check."""
+    """TC-010 — write a 2-byte BMP-like placeholder for the unsupported-format check."""
     INPUTS.mkdir(parents=True, exist_ok=True)
     (INPUTS / "TC-010.bmp").write_bytes(b"BM")
 

@@ -58,6 +58,9 @@ Issues = "https://github.com/nadeem-shaikh/redact-ai/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/redact_ai"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/redact_ai/resources/DejaVuSans-Bold.ttf" = "redact_ai/resources/DejaVuSans-Bold.ttf"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "src/redact_ai",
