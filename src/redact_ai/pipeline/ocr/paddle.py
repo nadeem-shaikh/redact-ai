@@ -30,7 +30,7 @@ class PaddleAdapter(OCRAdapter):
 
     def __init__(self, lang: str = "en") -> None:
         try:
-            from paddleocr import PaddleOCR  # type: ignore[import-not-found]
+            from paddleocr import PaddleOCR
         except ImportError as exc:  # pragma: no cover — exercised only with extra.
             raise ocr_error(
                 "PaddleOCR is not installed. Reinstall with 'pip install redact-ai[ocr-paddle]'."
@@ -47,7 +47,7 @@ class PaddleAdapter(OCRAdapter):
         arr = np.array(ingested.normalised)
         try:
             result = self._engine.ocr(arr, cls=False)
-        except Exception as exc:  # noqa: BLE001 — fail closed.
+        except Exception as exc:
             raise ocr_error(str(exc)) from exc
 
         tokens: list[Token] = []

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 _SENSITIVE_FIELDS: frozenset[str] = frozenset({"text", "bytes", "matched_text", "b64"})
@@ -44,7 +44,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "ts": datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds"),
+            "ts": datetime.now(tz=UTC).isoformat(timespec="milliseconds"),
             "level": record.levelname.lower(),
             "event": record.getMessage(),
         }

@@ -7,7 +7,7 @@ from functools import lru_cache
 from importlib.resources import files
 from typing import ClassVar
 
-from redact_ai.models.document import Document
+from redact_ai.models.document import Block, Document, Line, Token
 from redact_ai.models.findings import Category, Confidence, Finding
 from redact_ai.pipeline.detect.base import (
     cap_confidence,
@@ -51,13 +51,20 @@ class FullNameDetector:
                     n = len(tokens)
                     i = 0
                     while i < n:
-                        consumed = self._try_match(
-                            tokens, i, given, family, stop, page.index, out
-                        )
+                        consumed = self._try_match(tokens, i, given, family, stop, page.index, out)
                         i += consumed if consumed else 1
         return out
 
-    def _try_match(self, tokens, i, given, family, stop, page_index, out) -> int:
+    def _try_match(
+        self,
+        tokens: tuple[Token, ...],
+        i: int,
+        given: frozenset[str],
+        family: frozenset[str],
+        stop: frozenset[str],
+        page_index: int,
+        out: list[Finding],
+    ) -> int:
         first = tokens[i]
         if not _TITLE_RE.match(first.text):
             return 0
@@ -75,9 +82,7 @@ class FullNameDetector:
                 fhit = first.text.lower() in given
                 lhit = last.text.lower() in family
                 if fhit or lhit:
-                    self._emit(
-                        [first, middle, last], fhit and lhit, page_index, out
-                    )
+                    self._emit([first, middle, last], fhit and lhit, page_index, out)
                     return 3
         # Try First Last (two tokens).
         if i + 1 < len(tokens):
@@ -93,7 +98,13 @@ class FullNameDetector:
                     return 2
         return 0
 
-    def _emit(self, tokens, both_hit: bool, page_index: int, out: list[Finding]) -> None:
+    def _emit(
+        self,
+        tokens: list[Token],
+        both_hit: bool,
+        page_index: int,
+        out: list[Finding],
+    ) -> None:
         ocr_conf = confidence_from_tokens(tokens)
         detector_conf: Confidence = "high" if both_hit and ocr_conf == "high" else "medium"
         out.append(
@@ -109,12 +120,8 @@ class FullNameDetector:
 
 
 _DOB_REGEXES = [
-    re.compile(
-        r"\b(?:0?[1-9]|[12]\d|3[01])[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:19|20)\d{2}\b"
-    ),
-    re.compile(
-        r"\b(?:19|20)\d{2}[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:0?[1-9]|[12]\d|3[01])\b"
-    ),
+    re.compile(r"\b(?:0?[1-9]|[12]\d|3[01])[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:19|20)\d{2}\b"),
+    re.compile(r"\b(?:19|20)\d{2}[\/\-.\s](?:0?[1-9]|1[0-2])[\/\-.\s](?:0?[1-9]|[12]\d|3[01])\b"),
 ]
 _DOB_CONTEXT = re.compile(r"\b(?:DOB|Date of Birth|D\.O\.B\.|Born)\b", re.IGNORECASE)
 
@@ -180,7 +187,7 @@ def _valid_date(raw: str) -> bool:
     return False
 
 
-def _has_dob_context(block, target_line) -> bool:
+def _has_dob_context(block: Block, target_line: Line) -> bool:
     for line in block.lines:
         if line is target_line:
             text = " ".join(t.text for t in line.tokens)
@@ -232,7 +239,13 @@ class _LabelTriggeredDetector:
                     self._scan_block(block, trigger, page.index, out)
         return out
 
-    def _scan_block(self, block, trigger, page_index, out: list[Finding]) -> None:
+    def _scan_block(
+        self,
+        block: Block,
+        trigger: Line,
+        page_index: int,
+        out: list[Finding],
+    ) -> None:
         for cand in block.lines:
             same_line = cand is trigger
             below = (
@@ -252,10 +265,7 @@ class _LabelTriggeredDetector:
                     covered_tokens = tokens_covering(spans, *match.span())
                     if covered_tokens:
                         leftmost = min(t.bbox.x for t in covered_tokens)
-                        if (
-                            leftmost - trigger.bbox.x2 > self.horizontal_px
-                            and label_match is None
-                        ):
+                        if leftmost - trigger.bbox.x2 > self.horizontal_px and label_match is None:
                             continue
                 else:
                     covered_tokens = tokens_covering(spans, *match.span())
@@ -334,8 +344,7 @@ class DriverLicenceDetector:
                     for cand in block.lines:
                         same_line = cand is trigger
                         below = (
-                            cand.bbox.y >= trigger.bbox.y2
-                            and cand.bbox.y - trigger.bbox.y2 <= 64
+                            cand.bbox.y >= trigger.bbox.y2 and cand.bbox.y - trigger.bbox.y2 <= 64
                         )
                         if not (same_line or below):
                             continue
@@ -345,8 +354,7 @@ class DriverLicenceDetector:
                         for match in _DL_VALUE.finditer(text, search_start):
                             value = match.group(0)
                             if not (
-                                any(c.isalpha() for c in value)
-                                and any(c.isdigit() for c in value)
+                                any(c.isalpha() for c in value) and any(c.isdigit() for c in value)
                             ):
                                 continue
                             covered = tokens_covering(spans, *match.span())

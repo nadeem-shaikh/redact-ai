@@ -28,8 +28,8 @@ def _default_yaml_text() -> str:
     repository root.
     """
     try:
-        return files("redact_ai.resources").joinpath("default_policy.yaml").read_text(
-            encoding="utf-8"
+        return (
+            files("redact_ai.resources").joinpath("default_policy.yaml").read_text(encoding="utf-8")
         )
     except (FileNotFoundError, ModuleNotFoundError):
         repo_root = Path(__file__).resolve().parents[3]
@@ -42,7 +42,9 @@ def load_default_policy() -> Policy:
 
 def load_policy(source: str | Path) -> Policy:
     """Load a policy from a YAML file path or a YAML string."""
-    if isinstance(source, Path) or (isinstance(source, str) and "\n" not in source and Path(source).exists()):
+    if isinstance(source, Path) or (
+        isinstance(source, str) and "\n" not in source and Path(source).exists()
+    ):
         text = Path(source).read_text(encoding="utf-8")
         label = str(source)
     else:

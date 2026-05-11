@@ -42,13 +42,14 @@ def build_app(*, port: int) -> FastAPI:
         return JSONResponse({"error": exc.to_dict()}, status_code=exc.http_status)
 
     @app.exception_handler(StarletteHTTPException)
-    async def _http_error_handler(
-        _: object, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def _http_error_handler(_: object, exc: StarletteHTTPException) -> JSONResponse:
         if exc.status_code == 413:
             err = input_too_large_error(settings.max_upload_bytes + 1, settings.max_upload_bytes)
             return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)
-        return JSONResponse({"error": {"code": "E_HTTP", "message": str(exc.detail), "hint": ""}}, status_code=exc.status_code)
+        return JSONResponse(
+            {"error": {"code": "E_HTTP", "message": str(exc.detail), "hint": ""}},
+            status_code=exc.status_code,
+        )
 
     return app
 
@@ -58,7 +59,8 @@ def _claim_ephemeral_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+        port: int = sock.getsockname()[1]
+        return port
     finally:
         sock.close()
 

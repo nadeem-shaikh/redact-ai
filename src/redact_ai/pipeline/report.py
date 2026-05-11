@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from redact_ai.models.findings import Finding
+from redact_ai.models.findings import Category, Finding
 from redact_ai.models.manifest import FindingOut, Manifest, Stats, Warning
 from redact_ai.policy.schema import Policy
 
@@ -60,8 +60,8 @@ def build_manifest(
     )
 
 
-def _count_by_category(findings: list[FindingOut]) -> dict[str, int]:
-    counter: Counter[str] = Counter()
+def _count_by_category(findings: list[FindingOut]) -> dict[Category, int]:
+    counter: Counter[Category] = Counter()
     for f in findings:
         counter[f.category] += 1
     return dict(sorted(counter.items()))

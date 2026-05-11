@@ -12,11 +12,8 @@ the manifest, and any warnings raised along the way.
 from __future__ import annotations
 
 import hashlib
-import io
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
-from PIL import Image
+from datetime import UTC, datetime
 
 from redact_ai.errors import (
     RedactError,
@@ -25,6 +22,7 @@ from redact_ai.errors import (
     redaction_error,
 )
 from redact_ai.logging import get_logger
+from redact_ai.models.document import Document
 from redact_ai.models.findings import Confidence, Finding, confidence_ge
 from redact_ai.models.manifest import Manifest, Warning
 from redact_ai.pipeline.detect.registry import build_detectors
@@ -34,7 +32,7 @@ from redact_ai.pipeline.ocr.base import OCRAdapter
 from redact_ai.pipeline.ocr.tesseract import TesseractAdapter
 from redact_ai.pipeline.redact import RedactedImage, render_redacted
 from redact_ai.pipeline.report import build_manifest
-from redact_ai.policy.schema import Policy
+from redact_ai.policy.schema import BlockStyle, Policy, RedactionStyle
 from redact_ai.version import __version__
 
 log = get_logger("pipeline")
@@ -75,7 +73,7 @@ def redact(
         redacted = render_redacted(ingested, final, style)
     except RedactError:
         raise
-    except Exception as exc:  # noqa: BLE001 — fail closed (ADR-005).
+    except Exception as exc:
         raise redaction_error(str(exc)) from exc
 
     if policy.verbose_report:
@@ -110,14 +108,12 @@ def redact(
     return RedactionResult(image=redacted, manifest=manifest, warnings=tuple(warnings))
 
 
-def _run_ocr(
-    ocr: OCRAdapter, ingested: IngestedImage, warnings: list[Warning]
-) -> "object":
+def _run_ocr(ocr: OCRAdapter, ingested: IngestedImage, warnings: list[Warning]) -> Document:
     try:
         document = ocr.recognise(ingested)
     except RedactError:
         raise
-    except Exception as exc:  # noqa: BLE001 — fail closed.
+    except Exception as exc:
         raise ocr_error(str(exc)) from exc
     if any(t.confidence < 0.60 for t in document.iter_tokens()):
         warnings.append(
@@ -130,7 +126,7 @@ def _run_ocr(
     return document
 
 
-def _run_detectors(document, policy: Policy, warnings: list[Warning]) -> list[Finding]:
+def _run_detectors(document: Document, policy: Policy, warnings: list[Warning]) -> list[Finding]:
     detectors = build_detectors(policy)
     if not detectors:
         return []
@@ -141,7 +137,7 @@ def _run_detectors(document, policy: Policy, warnings: list[Warning]) -> list[Fi
         try:
             out.extend(detector.detect(document, policy))
             succeeded += 1
-        except Exception as exc:  # noqa: BLE001 — keep going per FR-8.2.
+        except Exception as exc:
             errors.append(f"{detector.rule_id}: {exc}")
             log.warning(
                 "detector_failed",
@@ -181,7 +177,7 @@ def _apply_thresholds(
     return out
 
 
-def _effective_style(policy: Policy, warnings: list[Warning]):
+def _effective_style(policy: Policy, warnings: list[Warning]) -> RedactionStyle:
     style = policy.redaction_style
     if style.kind == "blur":
         warnings.append(
@@ -191,8 +187,6 @@ def _effective_style(policy: Policy, warnings: list[Warning]):
                 source="redact",
             )
         )
-        from redact_ai.policy.schema import BlockStyle
-
         return BlockStyle(color=style.color, padding_px=style.padding_px)
     return style
 
@@ -202,10 +196,7 @@ def _sha256(data: bytes) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
-# Re-export Pillow Image so callers don't need to import it directly.
-_ = Image  # avoid unused-import lints in some tools
 
 __all__ = ["RedactionResult", "redact"]

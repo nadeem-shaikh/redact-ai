@@ -1,0 +1,6 @@
+{
+  "rule_ids_required": ["FI-001"],
+  "by_category_min": {"FINANCIAL": 1},
+  "min_total": 1,
+  "warnings_forbidden": ["W_DETECTOR_PARTIAL_FAILURE"]
+}

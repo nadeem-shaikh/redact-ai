@@ -6,8 +6,6 @@ detection is deferred to a future release.
 
 from __future__ import annotations
 
-from typing import cast
-
 from redact_ai.errors import policy_error
 from redact_ai.pipeline.detect.base import Detector
 from redact_ai.pipeline.detect.contact import (
@@ -76,5 +74,5 @@ def build_detectors(policy: Policy) -> list[Detector]:
         cls = REGISTRY.get(ref.id)
         if cls is None:
             raise policy_error(policy.id, f"unknown detector rule id: {ref.id}")
-        out.append(cast(Detector, cls()))
+        out.append(cls())
     return out

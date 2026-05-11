@@ -20,6 +20,7 @@ from redact_ai.errors import (
     policy_error,
 )
 from redact_ai.logging import get_logger
+from redact_ai.models.manifest import Manifest
 from redact_ai.pipeline import redact as run_pipeline
 from redact_ai.policy.loader import builtin_policies, load_default_policy
 from redact_ai.policy.schema import (
@@ -31,7 +32,6 @@ from redact_ai.policy.schema import (
 )
 from redact_ai.server.csrf import (
     COOKIE_NAME,
-    HEADER_NAME,
     META_NAME,
     generate_token,
     token_matches,
@@ -69,9 +69,7 @@ async def list_policies() -> JSONResponse:
 async def index(request: Request) -> HTMLResponse:
     html = files("redact_ai.server.static").joinpath("index.html").read_text(encoding="utf-8")
     token = request.cookies.get(COOKIE_NAME) or generate_token()
-    html = html.replace("{{ csrf_token }}", token).replace(
-        "{{ csrf_meta_name }}", META_NAME
-    )
+    html = html.replace("{{ csrf_token }}", token).replace("{{ csrf_meta_name }}", META_NAME)
     response = HTMLResponse(html)
     response.set_cookie(
         COOKIE_NAME,
@@ -115,9 +113,7 @@ async def post_redact(
     settings = get_settings()
     if not token_matches(rai_csrf, x_redact_csrf):
         err = csrf_error()
-        return JSONResponse(
-            {"error": err.to_dict()}, status_code=err.http_status
-        )
+        return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)
     mime = (image.content_type or "").lower()
     if mime not in {"image/png", "image/jpeg", "image/webp"}:
         err = input_format_error(mime or "<unknown>")
@@ -177,8 +173,7 @@ async def post_redact(
 
     by_category = result.manifest.stats.by_category
     stats_header = (
-        f"redactions={result.manifest.stats.redactions_total};"
-        f"categories={len(by_category)}"
+        f"redactions={result.manifest.stats.redactions_total};" f"categories={len(by_category)}"
     )
     headers = {
         "X-Redaction-Manifest": manifest_b64,
@@ -192,9 +187,7 @@ async def post_redact(
     )
 
 
-def _resolve_policy(
-    policy_id: str, style: str | None, verbose_report: str | None
-) -> Policy:
+def _resolve_policy(policy_id: str, style: str | None, verbose_report: str | None) -> Policy:
     if policy_id != "default":
         raise policy_error(policy_id, "only the 'default' policy is shipped in v0.1")
     base = load_default_policy()
@@ -208,7 +201,10 @@ def _resolve_policy(
     return base.model_copy(update=overrides)
 
 
-def _coerce_style(current, requested: str):
+def _coerce_style(
+    current: BlockStyle | BlurStyle | PixelateStyle | LabelStyle,
+    requested: str,
+) -> BlockStyle | BlurStyle | PixelateStyle | LabelStyle:
     requested = requested.lower()
     if requested == "block":
         return BlockStyle(color=getattr(current, "color", "#000000"))
@@ -221,8 +217,8 @@ def _coerce_style(current, requested: str):
     raise policy_error("override", f"unknown redaction style: {requested}")
 
 
-def _manifest_to_dict(manifest) -> dict[str, Any]:
-    data = manifest.model_dump(mode="json")
+def _manifest_to_dict(manifest: Manifest) -> dict[str, Any]:
+    data: dict[str, Any] = manifest.model_dump(mode="json")
     return data
 
 

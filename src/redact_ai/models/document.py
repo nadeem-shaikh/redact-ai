@@ -182,7 +182,13 @@ class Document(BaseModel):
         return value
 
     def iter_tokens(self) -> list[Token]:
-        return [tok for page in self.pages for block in page.blocks for line in block.lines for tok in line.tokens]
+        return [
+            tok
+            for page in self.pages
+            for block in page.blocks
+            for line in block.lines
+            for tok in line.tokens
+        ]
 
     def iter_lines(self) -> list[Line]:
         return [line for page in self.pages for block in page.blocks for line in block.lines]

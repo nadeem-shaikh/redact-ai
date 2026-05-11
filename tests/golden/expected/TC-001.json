@@ -1,0 +1,8 @@
+{
+  "rule_ids_required": ["ID-001", "FI-002", "FI-003"],
+  "rule_ids_optional": [],
+  "by_category_min": {"IDENTITY": 1, "FINANCIAL": 2},
+  "min_total": 3,
+  "warnings_required": [],
+  "warnings_forbidden": ["W_DETECTOR_PARTIAL_FAILURE"]
+}

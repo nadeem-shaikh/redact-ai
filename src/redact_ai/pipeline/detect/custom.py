@@ -18,7 +18,6 @@ from redact_ai.pipeline.detect.base import (
 )
 from redact_ai.policy.schema import Policy
 
-
 _ALLOWED_CONFIDENCES: frozenset[str] = frozenset({"low", "medium", "high"})
 _ALLOWED_CATEGORIES: frozenset[str] = frozenset(
     {"IDENTITY", "CONTACT", "FINANCIAL", "HEALTH", "CREDENTIALS", "LOCATION", "CUSTOM"}
@@ -38,13 +37,17 @@ class CustomRegexDetector:
         overrides = ref.overrides
         kind = overrides.get("kind", "regex")
         if kind not in {"regex", "dictionary"}:
-            raise policy_error(policy.id, f"CU-001.kind must be 'regex' or 'dictionary' (got {kind!r})")
+            raise policy_error(
+                policy.id, f"CU-001.kind must be 'regex' or 'dictionary' (got {kind!r})"
+            )
         category = overrides.get("category", "CUSTOM")
         if category not in _ALLOWED_CATEGORIES:
             raise policy_error(policy.id, f"CU-001.category must be one of {_ALLOWED_CATEGORIES}")
         confidence: Confidence = overrides.get("confidence", "medium")
         if confidence not in _ALLOWED_CONFIDENCES:
-            raise policy_error(policy.id, f"CU-001.confidence must be one of {_ALLOWED_CONFIDENCES}")
+            raise policy_error(
+                policy.id, f"CU-001.confidence must be one of {_ALLOWED_CONFIDENCES}"
+            )
         if kind == "regex":
             pattern = overrides.get("pattern")
             if not isinstance(pattern, str) or not pattern:
@@ -71,7 +74,7 @@ class CustomRegexDetector:
                         out.append(
                             Finding(
                                 rule_id=self.rule_id,
-                                category=category,  # type: ignore[arg-type]
+                                category=category,
                                 bbox=union_bboxes(t.bbox for t in covered),
                                 confidence=cap_confidence(confidence, ocr_conf),
                                 matched_text=match.group(0),

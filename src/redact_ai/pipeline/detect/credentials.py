@@ -30,9 +30,7 @@ def shannon_bits_per_char(s: str) -> float:
 _TOKEN_CANDIDATE_RE = re.compile(r"\b[A-Za-z0-9_\-]{20,}\b")
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _VERSION_LIKE_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)+$")
-_CONTEXT_RE = re.compile(
-    r"\b(token|secret|key|bearer|authorization)\b", re.IGNORECASE
-)
+_CONTEXT_RE = re.compile(r"\b(token|secret|key|bearer|authorization)\b", re.IGNORECASE)
 
 
 class HighEntropyTokenDetector:
@@ -90,9 +88,7 @@ class SshPrivateKeyDetector:
     def detect(self, doc: Document, policy: Policy) -> list[Finding]:
         out: list[Finding] = []
         for page in doc.pages:
-            flat_lines = [
-                line for block in page.blocks for line in block.lines
-            ]
+            flat_lines = [line for block in page.blocks for line in block.lines]
             i = 0
             while i < len(flat_lines):
                 line = flat_lines[i]

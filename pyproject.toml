@@ -84,10 +84,18 @@ select = [
 ]
 ignore = [
     "E501",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "SIM103",
+    "SIM117",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011", "RUF013"]
+# FastAPI uses ``File(...)``, ``Form(...)``, ``Header(...)`` as default
+# values by design (B008 is a false positive for the framework).
+"src/redact_ai/server/routes.py" = ["B008"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -117,6 +125,12 @@ filterwarnings = [
 [tool.coverage.run]
 source = ["redact_ai"]
 branch = true
+omit = [
+    # PaddleOCR adapter is behind an opt-in extra (ADR-008) and is not
+    # part of the v0.1 recall baseline; it's exercised only in the
+    # optional paddle CI matrix.
+    "src/redact_ai/pipeline/ocr/paddle.py",
+]
 
 [tool.coverage.report]
 show_missing = true

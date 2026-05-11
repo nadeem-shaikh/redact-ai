@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import shutil
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import Any
 
@@ -18,7 +19,6 @@ from PIL import Image
 
 from redact_ai.errors import ocr_error
 from redact_ai.models.document import (
-    AffineTransform,
     BBox,
     Block,
     Document,
@@ -34,7 +34,7 @@ from redact_ai.pipeline.ocr.base import OCRAdapter
 def _tesseract_version() -> str:
     try:
         version = str(pytesseract.get_tesseract_version()).strip().split()[0]
-    except Exception:  # noqa: BLE001 — adapter must not crash on probe.
+    except Exception:
         version = "unknown"
     return f"tesseract-{version}"
 
@@ -150,10 +150,10 @@ def _scale_confidence(raw: Any) -> float:
     return max(0.0, min(1.0, value / 100.0))
 
 
-def _union(bboxes) -> BBox:
-    bboxes = list(bboxes)
-    out = bboxes[0]
-    for b in bboxes[1:]:
+def _union(bboxes: Iterable[BBox]) -> BBox:
+    items = list(bboxes)
+    out: BBox = items[0]
+    for b in items[1:]:
         out = out.union(b)
     return out
 

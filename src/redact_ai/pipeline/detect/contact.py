@@ -7,7 +7,7 @@ from functools import lru_cache
 from importlib.resources import files
 from typing import ClassVar
 
-from redact_ai.models.document import Document
+from redact_ai.models.document import Document, Line
 from redact_ai.models.findings import Category, Confidence, Finding
 from redact_ai.pipeline.detect.base import (
     cap_confidence,
@@ -18,10 +18,7 @@ from redact_ai.pipeline.detect.base import (
 )
 from redact_ai.policy.schema import Policy
 
-
-_EMAIL_RE = re.compile(
-    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b"
-)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b")
 
 
 class EmailDetector:
@@ -103,9 +100,7 @@ _STREET_RE = re.compile(
     r"\s+(St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Ln|Lane|Dr|Drive|Way|Ct|Court|Pl|Place|Sq|Square)\b",
     re.IGNORECASE,
 )
-_CITY_STATE_ZIP_RE = re.compile(
-    r"^[A-Z][\w'.\- ]+,?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?\b"
-)
+_CITY_STATE_ZIP_RE = re.compile(r"^[A-Z][\w'.\- ]+,?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
 _ADDRESS_LABELS = re.compile(r"\b(Address|Addr|Mailing)\b", re.IGNORECASE)
 
 
@@ -140,19 +135,19 @@ class PostalAddressDetector:
                     if not is_street and not label_above:
                         continue
                     second = lines[i + 1] if i + 1 < len(lines) else None
-                    if second is None:
-                        continue
-                    second_text = " ".join(t.text for t in second.tokens)
-                    both = _CITY_STATE_ZIP_RE.search(second_text) is not None or (
-                        second_text.strip().rstrip(",.").lower() in countries
+                    second_text = " ".join(t.text for t in second.tokens) if second else ""
+                    both = bool(second) and (
+                        _CITY_STATE_ZIP_RE.search(second_text) is not None
+                        or second_text.strip().rstrip(",.").lower() in countries
                     )
-                    if both:
+                    if both and second is not None:
                         confidence: Confidence = "high"
+                        span_lines: list[Line] = [line, second]
                     elif label_above and is_street:
                         confidence = "medium"
+                        span_lines = [line]
                     else:
                         continue
-                    span_lines = [line, second]
                     tokens = [t for sl in span_lines for t in sl.tokens]
                     ocr_conf = confidence_from_tokens(tokens)
                     out.append(
@@ -161,7 +156,7 @@ class PostalAddressDetector:
                             category=self.category,
                             bbox=union_bboxes(t.bbox for t in tokens),
                             confidence=cap_confidence(confidence, ocr_conf),
-                            matched_text=line_text + " | " + second_text,
+                            matched_text=line_text + (" | " + second_text if both else ""),
                             page_index=page.index,
                         )
                     )

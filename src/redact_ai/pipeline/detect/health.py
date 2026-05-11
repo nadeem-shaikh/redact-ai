@@ -6,7 +6,7 @@ import re
 from typing import ClassVar
 
 from redact_ai.models.document import Document
-from redact_ai.models.findings import Category, Confidence, Finding
+from redact_ai.models.findings import Category, Finding
 from redact_ai.pipeline.detect.base import (
     cap_confidence,
     confidence_from_tokens,
@@ -45,8 +45,7 @@ class MrnDetector:
                     for cand in block.lines:
                         same = cand is trigger
                         below = (
-                            cand.bbox.y >= trigger.bbox.y2
-                            and cand.bbox.y - trigger.bbox.y2 <= 96
+                            cand.bbox.y >= trigger.bbox.y2 and cand.bbox.y - trigger.bbox.y2 <= 96
                         )
                         if not (same or below):
                             continue

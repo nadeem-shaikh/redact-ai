@@ -17,8 +17,7 @@ class Detector(Protocol):
     rule_id: ClassVar[str]
     category: ClassVar[Category]
 
-    def detect(self, doc: Document, policy: Policy) -> list[Finding]:
-        ...
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]: ...
 
 
 def policy_override(policy: Policy, rule_id: str) -> DetectorRef | None:

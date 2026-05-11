@@ -1,0 +1,6 @@
+{
+  "rule_ids_required": ["CR-003", "CR-001"],
+  "by_category_min": {"CREDENTIALS": 2},
+  "min_total": 2,
+  "warnings_forbidden": ["W_DETECTOR_PARTIAL_FAILURE"]
+}

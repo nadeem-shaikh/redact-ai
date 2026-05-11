@@ -39,9 +39,7 @@ def _horizontal_gap(a: Finding, b: Finding) -> int:
 
 
 def _should_merge(a: Finding, b: Finding) -> bool:
-    if a.category != b.category:
-        return False
-    if a.page_index != b.page_index:
+    if (a.category, a.page_index) != (b.category, b.page_index):
         return False
     if a.bbox.iou(b.bbox) >= IOU_THRESHOLD:
         return True
@@ -97,8 +95,6 @@ def merge_findings(findings: list[Finding]) -> list[Finding]:
                     consumed.add(j)
                     merged = True
             out.append(current)
-        items = sorted(
-            out, key=lambda f: (f.category, f.page_index, f.bbox.y, f.bbox.x, f.rule_id)
-        )
+        items = sorted(out, key=lambda f: (f.category, f.page_index, f.bbox.y, f.bbox.x, f.rule_id))
         if not merged:
             return items

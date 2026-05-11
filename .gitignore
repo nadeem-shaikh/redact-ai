@@ -94,3 +94,6 @@ htmlcov/
 examples/sample_inputs/private/
 examples/expected_outputs/private/
 *.private.*
+
+# Hypothesis cache (test framework artefact, not source).
+.hypothesis/

@@ -30,7 +30,5 @@ def dispatch(args: list[str]) -> int:
     if args[0] in {"--version", "-V", "version"}:
         sys.stdout.write(f"redact-ai {__version__}\n")
         return 0
-    sys.stderr.write(
-        f"unknown command: {args[0]!r}. Run 'redact-ai --help' or open the web UI.\n"
-    )
+    sys.stderr.write(f"unknown command: {args[0]!r}. Run 'redact-ai --help' or open the web UI.\n")
     return 2

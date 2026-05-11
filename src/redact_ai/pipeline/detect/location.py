@@ -20,7 +20,6 @@ from redact_ai.pipeline.detect.base import (
 )
 from redact_ai.policy.schema import Policy
 
-
 _GPS_RE = re.compile(
     r"(?<![\d.])(-?(?:[1-8]?\d(?:\.\d+)?|90(?:\.0+)?))\s*(°)?\s*([NS])?"
     r"\s*[, ]\s*"

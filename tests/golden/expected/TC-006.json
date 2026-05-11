@@ -1,0 +1,8 @@
+{
+  "rule_ids_required": [],
+  "rule_ids_forbidden": ["ID-001", "ID-002", "ID-003", "ID-004", "ID-005", "CO-001", "CO-002", "CO-003", "FI-001", "FI-002", "FI-003", "FI-004", "CR-001", "CR-002", "CR-003", "LO-001"],
+  "min_total": 0,
+  "max_total": 0,
+  "by_category_min": {},
+  "warnings_required": ["W_NO_FINDINGS"]
+}

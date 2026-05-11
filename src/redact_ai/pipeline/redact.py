@@ -81,14 +81,7 @@ def render_redacted(
 
     buf = io.BytesIO()
     save_format = ingested.pil_format
-    save_kwargs: dict[str, object] = {}
-    if save_format == "JPEG":
-        save_kwargs["quality"] = 92
-        save_kwargs["optimize"] = True
-    elif save_format == "PNG":
-        save_kwargs["optimize"] = True
-    elif save_format == "WEBP":
-        save_kwargs["quality"] = 92
+    save_kwargs: dict[str, object] = _save_kwargs(save_format)
     image.save(buf, format=save_format, **save_kwargs)
     data = buf.getvalue()
     return RedactedImage(
@@ -133,17 +126,9 @@ def _draw_pixelate(
     padding: int,
 ) -> None:
     padded = bbox.expanded(padding, max_w, max_h)
-    if padded.w <= 0 or padded.h <= 0:
-        return
     region = image.crop((padded.x, padded.y, padded.x2, padded.y2))
-    pixels = region.getdata()
+    pixels: list[tuple[int, int, int]] = list(region.getdata())
     n = len(pixels)
-    if n == 0:
-        return
-    if region.mode != "RGB":
-        region = region.convert("RGB")
-        pixels = region.getdata()
-        n = len(pixels)
     r = sum(p[0] for p in pixels) // n
     g = sum(p[1] for p in pixels) // n
     b = sum(p[2] for p in pixels) // n
@@ -159,39 +144,45 @@ def _draw_label(
 ) -> None:
     label = f"[{_CATEGORY_LABELS.get(category, category)}]"
     font = _label_font(bbox)
-    bbox_inner = bbox
-    try:
-        tx0, ty0, tx1, ty1 = draw.textbbox((0, 0), label, font=font)
-    except AttributeError:  # pragma: no cover — Pillow ≥10 always has textbbox.
-        text_w, text_h = draw.textsize(label, font=font)
-        tx0 = ty0 = 0
-        tx1, ty1 = text_w, text_h
+    tx0, ty0, tx1, ty1 = draw.textbbox((0, 0), label, font=font)
     text_w = tx1 - tx0
     text_h = ty1 - ty0
-    if text_w > bbox_inner.w - 4:
+    if text_w > bbox.w - 4:
         initials = "".join(c for c in category if c.isalpha())[:3]
         label = f"[{initials}]"
-        try:
-            tx0, ty0, tx1, ty1 = draw.textbbox((0, 0), label, font=font)
-        except AttributeError:  # pragma: no cover
-            text_w, text_h = draw.textsize(label, font=font)
-            tx0 = ty0 = 0
-            tx1, ty1 = text_w, text_h
+        tx0, ty0, tx1, ty1 = draw.textbbox((0, 0), label, font=font)
         text_w = tx1 - tx0
         text_h = ty1 - ty0
-    cx = bbox_inner.x + bbox_inner.w // 2 - text_w // 2 - tx0
-    cy = bbox_inner.y + bbox_inner.h // 2 - text_h // 2 - ty0
+    cx = bbox.x + bbox.w // 2 - text_w // 2 - tx0
+    cy = bbox.y + bbox.h // 2 - text_h // 2 - ty0
     draw.text((cx, cy), label, fill=_hex_to_rgb(style.text_color), font=font)
 
 
-def _label_font(bbox: BBox) -> ImageFont.ImageFont:
+def _label_font(bbox: BBox):  # type: ignore[no-untyped-def]
+    """Return a Pillow font sized to the bbox height (BUILD_SPEC §10.4).
+
+    Pillow's font types differ between FreeTypeFont (TrueType) and the
+    bitmap default; both expose the same interface used by Pillow's
+    drawing API, so we don't annotate the union here.
+    """
     size = min(max(int(bbox.h * 0.6), 10), 24)
     try:
         return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
-    except OSError:  # pragma: no cover — DejaVu is shipped with Pillow.
+    except OSError:  # pragma: no cover — DejaVu ships with Pillow.
         return ImageFont.load_default()
 
 
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
     v = value.lstrip("#")
     return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
+
+
+_SAVE_KWARGS: dict[str, dict[str, object]] = {
+    "PNG": {"optimize": True},
+    "JPEG": {"quality": 92, "optimize": True},
+    "WEBP": {"quality": 92},
+}
+
+
+def _save_kwargs(pil_format: str) -> dict[str, object]:
+    return dict(_SAVE_KWARGS[pil_format])

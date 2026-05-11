@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import ClassVar
 
-from redact_ai.models.document import Document
-from redact_ai.models.findings import Category, Confidence, Finding
+from redact_ai.models.document import BBox, Document
+from redact_ai.models.findings import Category, Finding
 from redact_ai.pipeline.detect.base import (
     cap_confidence,
     confidence_from_tokens,
@@ -142,8 +142,7 @@ class BankAccountDetector:
                     for cand in block.lines:
                         same = cand is trigger
                         below = (
-                            cand.bbox.y >= trigger.bbox.y2
-                            and cand.bbox.y - trigger.bbox.y2 <= 96
+                            cand.bbox.y >= trigger.bbox.y2 and cand.bbox.y - trigger.bbox.y2 <= 96
                         )
                         if not (same or below):
                             continue
@@ -198,17 +197,14 @@ class CvvExpiryDetector:
                 pans_in_block = [
                     p
                     for p in pans
-                    if p.page_index == page.index
-                    and block.bbox.iou(p.bbox) > 0
+                    if (p.page_index == page.index and block.bbox.iou(p.bbox) > 0)
                     or _bbox_inside(p.bbox, block.bbox)
                 ]
                 if not pans_in_block:
                     continue
                 for line in block.lines:
                     text, spans = line_text_and_offsets(line)
-                    line_close = any(
-                        _bbox_close(line.bbox, p.bbox, 200) for p in pans_in_block
-                    )
+                    line_close = any(_bbox_close(line.bbox, p.bbox, 200) for p in pans_in_block)
                     if not line_close:
                         continue
                     for match in _EXPIRY_RE.finditer(text):
@@ -245,16 +241,13 @@ class CvvExpiryDetector:
         return out
 
 
-def _bbox_inside(inner, outer) -> bool:
-    return (
-        inner.x >= outer.x
-        and inner.y >= outer.y
-        and inner.x2 <= outer.x2
-        and inner.y2 <= outer.y2
+def _bbox_inside(inner: BBox, outer: BBox) -> bool:
+    return bool(
+        inner.x >= outer.x and inner.y >= outer.y and inner.x2 <= outer.x2 and inner.y2 <= outer.y2
     )
 
 
-def _bbox_close(a, b, px: int) -> bool:
+def _bbox_close(a: BBox, b: BBox, px: int) -> bool:
     dx = max(a.x - b.x2, b.x - a.x2, 0)
     dy = max(a.y - b.y2, b.y - a.y2, 0)
     return dx + dy <= px
