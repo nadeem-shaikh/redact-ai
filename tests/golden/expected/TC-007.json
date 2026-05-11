@@ -1,0 +1,6 @@
+{
+  "rule_ids_required": ["CO-001"],
+  "by_category_min": {"CONTACT": 3},
+  "min_total": 3,
+  "warnings_forbidden": ["W_DETECTOR_PARTIAL_FAILURE"]
+}
