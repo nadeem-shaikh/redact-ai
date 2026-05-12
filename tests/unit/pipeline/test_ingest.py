@@ -36,7 +36,7 @@ def test_png_round_trip() -> None:
 
 def test_unsupported_mime_rejected() -> None:
     with pytest.raises(RedactError) as exc:
-        ingest_bytes(_png_bytes(), "image/bmp")
+        ingest_bytes(_png_bytes(), "image/x-icon")
     assert exc.value.code == "E_INPUT_FORMAT"
 
 
@@ -73,3 +73,58 @@ def test_large_input_keeps_size() -> None:
 def test_jpeg_round_trip() -> None:
     ingested = ingest_bytes(_jpeg_bytes(), "image/jpeg")
     assert ingested.pil_format == "JPEG"
+
+
+def _bytes_in(pil_format: str, *, size: tuple[int, int] = (100, 100)) -> bytes:
+    img = Image.new("RGB", size, "white")
+    buf = io.BytesIO()
+    img.save(buf, format=pil_format)
+    return buf.getvalue()
+
+
+def test_gif_re_encoded_as_png() -> None:
+    ingested = ingest_bytes(_bytes_in("GIF"), "image/gif")
+    assert ingested.pil_format == "PNG"
+    assert ingested.mime_type == "image/png"
+
+
+def test_bmp_re_encoded_as_png() -> None:
+    ingested = ingest_bytes(_bytes_in("BMP"), "image/bmp")
+    assert ingested.pil_format == "PNG"
+    assert ingested.mime_type == "image/png"
+
+
+def test_tiff_re_encoded_as_png() -> None:
+    ingested = ingest_bytes(_bytes_in("TIFF"), "image/tiff")
+    assert ingested.pil_format == "PNG"
+    assert ingested.mime_type == "image/png"
+
+
+def test_jpg_alias_accepted() -> None:
+    ingested = ingest_bytes(_jpeg_bytes(), "image/jpg")
+    assert ingested.pil_format == "JPEG"
+    assert ingested.mime_type == "image/jpeg"
+
+
+def test_heic_re_encoded_as_jpeg() -> None:
+    img = Image.new("RGB", (100, 100), "white")
+    buf = io.BytesIO()
+    img.save(buf, format="HEIF")
+    ingested = ingest_bytes(buf.getvalue(), "image/heic")
+    assert ingested.pil_format == "JPEG"
+    assert ingested.mime_type == "image/jpeg"
+
+
+def test_avif_re_encoded_as_webp() -> None:
+    img = Image.new("RGB", (100, 100), "white")
+    buf = io.BytesIO()
+    img.save(buf, format="AVIF")
+    ingested = ingest_bytes(buf.getvalue(), "image/avif")
+    assert ingested.pil_format == "WEBP"
+    assert ingested.mime_type == "image/webp"
+
+
+def test_pdf_still_rejected() -> None:
+    with pytest.raises(RedactError) as exc:
+        ingest_bytes(b"%PDF-1.4\n%...", "application/pdf")
+    assert exc.value.code == "E_INPUT_FORMAT"

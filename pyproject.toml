@@ -25,6 +25,12 @@ dependencies = [
     "fastapi==0.115.6",
     "uvicorn[standard]==0.32.1",
     "pillow==11.0.0",
+    # HEIC/HEIF support (iPhone default photo format). Registers the
+    # HEIF opener with Pillow on import.
+    "pillow-heif==0.21.0",
+    # AVIF support (modern web format). Pillow 11 has built-in AVIF only
+    # when libavif is linked at build time; the plugin guarantees it.
+    "pillow-avif-plugin==1.5.0",
     "pytesseract==0.3.13",
     "pydantic==2.10.3",
     "pydantic-settings==2.7.0",

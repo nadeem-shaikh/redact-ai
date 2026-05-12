@@ -65,8 +65,11 @@ class RedactError(Exception):
 def input_format_error(mime: str) -> RedactError:
     return RedactError(
         E_INPUT_FORMAT,
-        f"Unsupported MIME type: {mime}. Convert to PNG, JPEG, or WebP.",
-        hint="Try saving the file as .png, .jpg, or .webp and upload again.",
+        (
+            f"Unsupported MIME type: {mime}. "
+            "Supported: PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/HEIF, AVIF."
+        ),
+        hint="Try saving the file as one of those formats and upload again.",
     )
 
 
