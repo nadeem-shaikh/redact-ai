@@ -526,3 +526,103 @@ class PersonNameNerDetector:
                             )
                         )
         return out
+
+
+_PAYMENT_LABEL_RE = re.compile(
+    r"\b(?:"
+    r"Paid\s+to|Pay\s+to|Payee|Beneficiary|Recipient|Receiver|"
+    r"Sender|Sent\s+to|Transferred\s+to|Account\s+(?:Holder|Name)"
+    r")\b",
+    re.IGNORECASE,
+)
+_NAME_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z'\-]+$")
+
+
+class PaymentRecipientNameDetector:
+    """ID-008 — names anchored to a payment-context label.
+
+    Catches recipient names on receipts, money-transfer confirmations,
+    and similar payment UIs where the name appears under a label like
+    ``Paid to`` / ``Payee`` / ``Beneficiary``. Necessary because such
+    names are frequently non-Western and rendered all-caps, two cases
+    where ID-001 (US dictionary) and ID-006 (statistical NER on
+    casing-sensitive models) both struggle.
+    """
+
+    rule_id: ClassVar[str] = "ID-008"
+    category: ClassVar[Category] = "IDENTITY"
+    vertical_px: ClassVar[int] = 96
+    max_name_tokens: ClassVar[int] = 5
+
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]:
+        out: list[Finding] = []
+        for page in doc.pages:
+            for block in page.blocks:
+                trigger_lines = [
+                    line
+                    for line in block.lines
+                    if _PAYMENT_LABEL_RE.search(" ".join(t.text for t in line.tokens))
+                ]
+                if not trigger_lines:
+                    continue
+                for trigger in trigger_lines:
+                    self._scan_block(block, trigger, page.index, out)
+        return out
+
+    def _scan_block(
+        self,
+        block: Block,
+        trigger: Line,
+        page_index: int,
+        out: list[Finding],
+    ) -> None:
+        stop = _wordset("stopwords_caps_en.txt")
+        for cand in block.lines:
+            same = cand is trigger
+            below = (
+                cand.bbox.y >= trigger.bbox.y2 and cand.bbox.y - trigger.bbox.y2 <= self.vertical_px
+            )
+            if not (same or below):
+                continue
+            tokens = list(cand.tokens)
+            if same:
+                label_match = _PAYMENT_LABEL_RE.search(" ".join(t.text for t in tokens))
+                if label_match is None:
+                    continue
+                # Drop tokens that are entirely within the label match.
+                joined = ""
+                start_index = 0
+                cursor = 0
+                for idx, tok in enumerate(tokens):
+                    if idx:
+                        cursor += 1
+                        joined += " "
+                    joined += tok.text
+                    if cursor + len(tok.text) <= label_match.end():
+                        start_index = idx + 1
+                    cursor += len(tok.text)
+                tokens = tokens[start_index:]
+            run: list[Token] = []
+            for tok in tokens:
+                if _NAME_TOKEN_RE.match(tok.text) and tok.text.lower() not in stop:
+                    run.append(tok)
+                    if len(run) >= self.max_name_tokens:
+                        break
+                else:
+                    if len(run) >= 2:
+                        break
+                    run = []
+            if len(run) < 2:
+                continue
+            ocr_conf = confidence_from_tokens(run)
+            out.append(
+                Finding(
+                    rule_id=self.rule_id,
+                    category=self.category,
+                    bbox=union_bboxes(t.bbox for t in run),
+                    confidence=cap_confidence("high", ocr_conf),
+                    matched_text=" ".join(t.text for t in run),
+                    page_index=page_index,
+                )
+            )
+            return  # one recipient name per trigger

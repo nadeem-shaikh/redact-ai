@@ -42,6 +42,9 @@ detectors:
   - id: ID-007
     enabled: true
     threshold: medium      # OpenCV Haar face detector (ADR-012)
+  - id: ID-008
+    enabled: true
+    threshold: low         # payment-context recipient names (Paid to / Payee / ...)
 
   # --- CONTACT ---
   - id: CO-001
@@ -67,6 +70,9 @@ detectors:
   - id: FI-004
     enabled: true
     threshold: low
+  - id: FI-005
+    enabled: true
+    threshold: low      # masked numbers like ******1234 are unambiguous
 
   # --- HEALTH ---
   - id: HE-001

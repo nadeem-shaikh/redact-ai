@@ -164,6 +164,21 @@ Locale: **`en-US` only in v0.1**.
   avoid generic matches; variant findings are emitted at `medium`
   confidence.
 
+### ID-008 — Payment-recipient names (label-triggered)
+
+- **Approach:** Layout-aware label trigger. Catches recipient names on
+  payment-receipt screenshots where the name is rendered all-caps
+  and/or is non-Western — two cases where ID-001 (US dictionary) and
+  ID-006 (statistical NER on a cased model) both reliably miss.
+- **Trigger labels (case-insensitive):** `Paid to`, `Pay to`,
+  `Payee`, `Beneficiary`, `Recipient`, `Receiver`, `Sender`,
+  `Sent to`, `Transferred to`, `Account Holder`, `Account Name`.
+- **Match rule:** Within the same block, on the trigger line (to the
+  right of the label) or within 96 px below, capture a contiguous run
+  of 2–5 capitalised tokens matching `^[A-Z][A-Za-z'\-]+$`. Stopword
+  tokens (`stopwords_caps_en.txt`) break the run.
+- **Confidence:** `HIGH` (label-anchored).
+
 ### ID-007 — Face photo detector (vision)
 
 - **Approach:** OpenCV Haar cascade (`haarcascade_frontalface_default.xml`)
@@ -281,6 +296,20 @@ Locale: **`en-US` only in v0.1**.
 - **Negative filter:** Skip if the digit run also Luhn-validates
   (then it is FI-001) or mod-97 validates (then it is FI-002).
 - **Confidence:** `MEDIUM`.
+
+### FI-005 — Masked account / card numbers
+
+- **Approach:** Standalone regex. A run of mask glyphs adjacent to a
+  short digit suffix is an unambiguous reference to a sensitive
+  identifier — no label trigger is required because the mask glyphs
+  themselves are the signal. Catches the dominant mobile-payment UI
+  pattern (e.g. `******1234`, `XXXX5678`, `••••9012`).
+- **Mask glyphs:** `*`, `X` (uppercase only — lowercase `x` is too
+  ambiguous with technical contexts like `x86`), `•`, `·`, `●`.
+- **Match rule:** ≥ 2 mask glyphs immediately followed by ≥ 2 digits
+  (suffix form), or a `digits-mask-digits` sandwich form. Tokens
+  with separators (`\s`, `-`) between glyphs are tolerated.
+- **Confidence:** `HIGH` (mask-glyph signature is the validator).
 
 ### FI-004 — CVV / expiry adjacent to a PAN
 

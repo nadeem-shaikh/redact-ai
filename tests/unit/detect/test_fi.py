@@ -6,6 +6,7 @@ from redact_ai.pipeline.detect.financial import (
     BankAccountDetector,
     CvvExpiryDetector,
     IbanDetector,
+    MaskedAccountDetector,
     PanDetector,
     iban_ok,
     luhn_ok,
@@ -74,4 +75,40 @@ def test_cvv_expiry_anchored_to_pan() -> None:
 def test_cvv_expiry_no_pan_no_match() -> None:
     doc = make_doc(["Exp 09/27 CVV 123"])
     out = CvvExpiryDetector().detect(doc, load_default_policy())
+    assert out == []
+
+
+def test_masked_account_asterisks() -> None:
+    doc = make_doc(["******1234"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert len(out) == 1
+    assert out[0].rule_id == "FI-005"
+    assert "1234" in out[0].matched_text
+    assert out[0].confidence == "high"
+
+
+def test_masked_account_uppercase_x() -> None:
+    doc = make_doc(["XXXX1234"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert len(out) == 1
+    assert "1234" in out[0].matched_text
+
+
+def test_masked_account_bullets() -> None:
+    doc = make_doc(["••••5678"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert len(out) == 1
+    assert "5678" in out[0].matched_text
+
+
+def test_masked_account_plain_digits_not_matched() -> None:
+    doc = make_doc(["12345678"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert out == []
+
+
+def test_masked_account_short_mask_run_not_matched() -> None:
+    # Single mask char is not enough — must be a run.
+    doc = make_doc(["*1234"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
     assert out == []

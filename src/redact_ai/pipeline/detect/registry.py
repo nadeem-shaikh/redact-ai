@@ -24,6 +24,7 @@ from redact_ai.pipeline.detect.financial import (
     BankAccountDetector,
     CvvExpiryDetector,
     IbanDetector,
+    MaskedAccountDetector,
     PanDetector,
 )
 from redact_ai.pipeline.detect.health import (
@@ -37,6 +38,7 @@ from redact_ai.pipeline.detect.identity import (
     FullNameDetector,
     GovernmentIdDetector,
     PassportDetector,
+    PaymentRecipientNameDetector,
     PersonNameNerDetector,
 )
 from redact_ai.pipeline.detect.location import GpsCoordsDetector
@@ -51,6 +53,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "ID-004": PassportDetector,
     "ID-005": DriverLicenceDetector,
     "ID-006": PersonNameNerDetector,
+    "ID-008": PaymentRecipientNameDetector,
     "CO-001": EmailDetector,
     "CO-002": PhoneDetector,
     "CO-003": PostalAddressDetector,
@@ -58,6 +61,7 @@ REGISTRY: dict[str, type[Detector]] = {
     "FI-002": IbanDetector,
     "FI-003": BankAccountDetector,
     "FI-004": CvvExpiryDetector,
+    "FI-005": MaskedAccountDetector,
     "HE-001": MrnDetector,
     "HE-002": Icd10Detector,
     "HE-003": PrescriptionDetector,

@@ -176,6 +176,58 @@ class BankAccountDetector:
         return out
 
 
+_MASK_CHARS = "*X•·●"
+_MASKED_NUMBER_RE = re.compile(
+    r"(?:[\*X•·●](?:\s|[\-]){0,2}){2,}(?:\d(?:\s|[\-])?){2,}"
+    r"|(?:\d(?:\s|[\-])?){2,}(?:[\*X•·●](?:\s|[\-]){0,2}){2,}(?:\d(?:\s|[\-])?){2,}"
+)
+
+
+class MaskedAccountDetector:
+    """FI-005 — masked account / card numbers like ``******1234`` or ``XXXX5678``.
+
+    A run of mask glyphs (``*``, ``X``, ``•``, ``·``, ``●``)
+    adjacent to a short run of digits is an unambiguous reference to a
+    sensitive identifier. No label trigger is required because the mask
+    glyphs themselves are the signal.
+    """
+
+    rule_id: ClassVar[str] = "FI-005"
+    category: ClassVar[Category] = "FINANCIAL"
+
+    def detect(self, doc: Document, policy: Policy) -> list[Finding]:
+        out: list[Finding] = []
+        for page in doc.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    text, spans = line_text_and_offsets(line)
+                    for match in _MASKED_NUMBER_RE.finditer(text):
+                        raw = match.group(0)
+                        if _digit_count(raw) < 2:
+                            continue
+                        if not _has_mask_char(raw):
+                            continue
+                        covered = tokens_covering(spans, *match.span())
+                        if not covered:
+                            continue
+                        ocr_conf = confidence_from_tokens(covered)
+                        out.append(
+                            Finding(
+                                rule_id=self.rule_id,
+                                category=self.category,
+                                bbox=union_bboxes(t.bbox for t in covered),
+                                confidence=cap_confidence("high", ocr_conf),
+                                matched_text=raw,
+                                page_index=page.index,
+                            )
+                        )
+        return out
+
+
+def _has_mask_char(s: str) -> bool:
+    return any(c in _MASK_CHARS for c in s)
+
+
 _EXPIRY_RE = re.compile(r"\b(0[1-9]|1[0-2])[\/\-](\d{2}|\d{4})\b")
 _CVV_RE = re.compile(r"\b\d{3,4}\b")
 _CVV_KEYWORD_RE = re.compile(r"\b(CVV|CVC|Sec(?:urity)?\s*Code)\b", re.IGNORECASE)
