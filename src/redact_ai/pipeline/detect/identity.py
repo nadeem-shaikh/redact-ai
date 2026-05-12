@@ -32,6 +32,26 @@ def _wordset(filename: str) -> frozenset[str]:
 
 _TITLE_RE = re.compile(r"^[A-Z][a-zA-Z'\-]+$")
 _MIDDLE_RE = re.compile(r"^[A-Z](?:\.|)$")
+# Honorifics that commonly precede a full name in screenshots
+# (medical reports, signatures, formal headers). The ID-001 walk
+# skips one of these when it appears as the first token so a line
+# tokenised as ["Dr.", "Laura", "Bennett,", "MD"] still resolves to
+# "Laura Bennett". Match is case-insensitive and tolerates the
+# trailing period that's stripped by ``_token_body``.
+_HONORIFICS: frozenset[str] = frozenset(
+    {"dr", "mr", "mrs", "ms", "mx", "miss", "sir", "madam", "prof", "rev", "fr"}
+)
+# Punctuation that's commonly attached to a token by the OCR
+# tokenizer (trailing comma after a name, leading quote, etc.). The
+# bbox still covers the punctuation — we only normalise the *text*
+# before regex / dictionary checks so that "Bennett," is treated as
+# "Bennett".
+_TOKEN_PUNCT_STRIP = ".,;:!?\"'()[]{}"
+
+
+def _token_body(text: str) -> str:
+    """Return ``text`` with leading/trailing punctuation stripped."""
+    return text.strip(_TOKEN_PUNCT_STRIP)
 
 
 class FullNameDetector:
@@ -52,6 +72,12 @@ class FullNameDetector:
                     n = len(tokens)
                     i = 0
                     while i < n:
+                        # Skip a leading honorific so a "Dr. Laura
+                        # Bennett, MD" line still matches at "Laura
+                        # Bennett". The honorific itself isn't a name.
+                        if _token_body(tokens[i].text).lower() in _HONORIFICS:
+                            i += 1
+                            continue
                         consumed = self._try_match(tokens, i, given, family, stop, page.index, out)
                         i += consumed if consumed else 1
         return out
@@ -67,30 +93,33 @@ class FullNameDetector:
         out: list[Finding],
     ) -> int:
         first = tokens[i]
-        if not _TITLE_RE.match(first.text):
+        first_body = _token_body(first.text)
+        if not _TITLE_RE.match(first_body):
             return 0
-        if first.text.lower() in stop:
+        if first_body.lower() in stop:
             return 0
         # Try First M. Last (three tokens with middle initial).
         if i + 2 < len(tokens):
             middle = tokens[i + 1]
             last = tokens[i + 2]
+            last_body = _token_body(last.text)
             if (
-                _MIDDLE_RE.match(middle.text)
-                and _TITLE_RE.match(last.text)
-                and last.text.lower() not in stop
+                _MIDDLE_RE.match(_token_body(middle.text))
+                and _TITLE_RE.match(last_body)
+                and last_body.lower() not in stop
             ):
-                fhit = first.text.lower() in given
-                lhit = last.text.lower() in family
+                fhit = first_body.lower() in given
+                lhit = last_body.lower() in family
                 if fhit or lhit:
                     self._emit([first, middle, last], fhit and lhit, page_index, out)
                     return 3
         # Try First Last (two tokens).
         if i + 1 < len(tokens):
             last = tokens[i + 1]
-            if _TITLE_RE.match(last.text) and last.text.lower() not in stop:
-                fhit = first.text.lower() in given
-                lhit = last.text.lower() in family
+            last_body = _token_body(last.text)
+            if _TITLE_RE.match(last_body) and last_body.lower() not in stop:
+                fhit = first_body.lower() in given
+                lhit = last_body.lower() in family
                 if fhit and lhit:
                     self._emit([first, last], True, page_index, out)
                     return 2
