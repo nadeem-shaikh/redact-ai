@@ -36,6 +36,17 @@ When a task that produces code changes is complete:
 7. **Unsubscribe on merge.** When the merge event arrives, treat the
    PR as closed: do not reopen or open follow-up PRs for the same
    change unless the user asks.
+8. **Clean up after merge.** Once the PR is merged, switch off the
+   feature branch, fast-forward `main`, and delete the local branch:
+   ```bash
+   git checkout main
+   git pull origin main
+   git branch -d <feature-branch>
+   git fetch --prune origin
+   ```
+   `git branch -d` (lowercase) is intentional — it refuses to delete
+   an unmerged branch, so a surprise diff is caught instead of
+   silently dropped. Don't use `-D` unless the user explicitly asks.
 
 ## PII / secrets
 
