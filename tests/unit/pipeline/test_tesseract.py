@@ -231,6 +231,36 @@ def test_reocr_error_falls_back_to_original_token() -> None:
     assert texts == ["garbage"]
 
 
+def test_reocr_timeout_falls_back_to_original_token() -> None:
+    """``pytesseract`` raises ``RuntimeError`` when the per-token
+    ``timeout`` elapses. The adapter must catch it and keep the
+    original token rather than failing the whole OCR stage."""
+    first_pass = _td(
+        [
+            ("noise", 5, 50, 100, 60, 14, 1, 1, 1, 1),
+        ]
+    )
+    ingested = ingest_bytes(_png_bytes(), "image/png")
+
+    def _fake_image_to_data(image: Image.Image, **kwargs: Any) -> dict[str, list[Any]]:
+        config = kwargs.get("config", "")
+        if "--psm 7" in config:
+            raise RuntimeError("Tesseract process timeout")
+        return first_pass
+
+    with patch(
+        "redact_ai.pipeline.ocr.tesseract.pytesseract.image_to_data",
+        side_effect=_fake_image_to_data,
+    ):
+        with patch(
+            "redact_ai.pipeline.ocr.tesseract.shutil.which", return_value="/usr/bin/tesseract"
+        ):
+            doc = TesseractAdapter().recognise(ingested)
+
+    texts = [t.text for t in doc.iter_tokens()]
+    assert texts == ["noise"]
+
+
 def test_per_page_reocr_budget_caps_calls() -> None:
     """On a noisy scan with many sub-threshold tokens, re-OCR stops
     after ``_REOCR_MAX_PER_PAGE`` attempts so OCR latency stays

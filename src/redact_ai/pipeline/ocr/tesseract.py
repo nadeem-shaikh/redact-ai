@@ -23,6 +23,7 @@ import hashlib
 import io
 import shutil
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -30,6 +31,7 @@ import pytesseract
 from PIL import Image
 
 from redact_ai.errors import ocr_error
+from redact_ai.logging import get_logger
 from redact_ai.models.document import (
     BBox,
     Block,
@@ -40,6 +42,8 @@ from redact_ai.models.document import (
 )
 from redact_ai.pipeline.ingest import IngestedImage
 from redact_ai.pipeline.ocr.base import OCRAdapter
+
+log = get_logger("ocr.tesseract")
 
 # Tokens at or below this confidence trigger a per-token re-OCR pass.
 # 0.40 catches Tesseract's "I have no idea" output (typically 0.0–0.3)
@@ -62,6 +66,23 @@ _REOCR_CROP_PAD: int = 3
 # refinements) and bounds the worst case at 50× a single-line OCR
 # call, which is still small compared to a full-page pass.
 _REOCR_MAX_PER_PAGE: int = 50
+# Per-token OCR timeout in seconds. pytesseract terminates the
+# tesseract subprocess after this elapses and raises ``RuntimeError``
+# (see the pytesseract docs); we catch that and fall back to keeping
+# the original token. Five seconds is generous for a single-line
+# crop and bounds the worst case at 50 × 5 s = 4.2 min per page if
+# every crop hangs, which is rare but recoverable.
+_REOCR_TIMEOUT_S: float = 5.0
+
+
+@dataclass
+class _RefineState:
+    """Mutable counter threaded through the refinement walk."""
+
+    budget: int
+    attempts: int = 0
+    accepted: int = 0
+    skipped_due_to_budget: int = 0
 
 
 @lru_cache(maxsize=1)
@@ -113,14 +134,16 @@ class TesseractAdapter(OCRAdapter):
         Bounded by ``_REOCR_MAX_PER_PAGE`` so a noisy scan can't turn
         one full-page OCR call into hundreds of crop calls. Once the
         budget is exhausted any remaining sub-threshold tokens are
-        kept as-is.
+        kept as-is. A single JSON log line records the
+        attempt/accepted/skipped counts so the latency-vs-recall
+        trade-off can be tuned against real scans.
         """
-        budget = [_REOCR_MAX_PER_PAGE]
+        state = _RefineState(budget=_REOCR_MAX_PER_PAGE)
         new_blocks: list[Block] = []
         for block in page.blocks:
             new_lines: list[Line] = []
             for line in block.lines:
-                refined = self._refine_line(line, image, budget)
+                refined = self._refine_line(line, image, state)
                 new_lines.append(refined if refined is not None else line)
             if not new_lines:
                 continue
@@ -132,6 +155,17 @@ class TesseractAdapter(OCRAdapter):
                     block_type=block.block_type,
                 )
             )
+        if state.attempts or state.skipped_due_to_budget:
+            log.info(
+                "ocr.reocr_pass",
+                extra={
+                    "fields": {
+                        "attempts": state.attempts,
+                        "accepted": state.accepted,
+                        "skipped_due_to_budget": state.skipped_due_to_budget,
+                    }
+                },
+            )
         return Page(
             index=page.index,
             width=page.width,
@@ -139,26 +173,33 @@ class TesseractAdapter(OCRAdapter):
             blocks=tuple(new_blocks),
         )
 
-    def _refine_line(self, line: Line, image: Image.Image, budget: list[int]) -> Line | None:
+    def _refine_line(self, line: Line, image: Image.Image, state: _RefineState) -> Line | None:
         """Return a new Line with replaced tokens, or ``None`` when no
         token was refined (caller keeps the original).
 
-        ``budget`` is a single-element mutable list used as a shared
-        counter across the whole page walk; each re-OCR attempt
-        decrements it and the loop short-circuits when it hits zero.
+        ``state`` is shared across the page walk; each refinement
+        attempt decrements ``state.budget``. Once budget reaches zero
+        further sub-threshold tokens are counted into
+        ``skipped_due_to_budget`` and kept as-is.
         """
         refined_any = False
         out: list[Token] = []
         for tok in line.tokens:
-            if tok.confidence > _REOCR_TOKEN_THRESHOLD or budget[0] <= 0:
+            if tok.confidence > _REOCR_TOKEN_THRESHOLD:
                 out.append(tok)
                 continue
-            budget[0] -= 1
+            if state.budget <= 0:
+                state.skipped_due_to_budget += 1
+                out.append(tok)
+                continue
+            state.budget -= 1
+            state.attempts += 1
             replacement = self._reocr_token(tok, image)
             if replacement is None:
                 out.append(tok)
             else:
                 out.extend(replacement)
+                state.accepted += 1
                 refined_any = True
         if not refined_any or not out:
             return None
@@ -191,8 +232,13 @@ class TesseractAdapter(OCRAdapter):
                 lang=self.lang,
                 output_type=pytesseract.Output.DICT,
                 config="--psm 7",
+                timeout=_REOCR_TIMEOUT_S,
             )
-        except pytesseract.TesseractError:
+        except (pytesseract.TesseractError, RuntimeError):
+            # pytesseract raises ``RuntimeError`` when ``timeout`` elapses
+            # and terminates the subprocess. Both branches fall back to
+            # keeping the original token rather than failing the whole
+            # OCR stage.
             return None
         new_tokens: list[Token] = []
         n = len(data.get("text", []))
