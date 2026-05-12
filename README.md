@@ -16,20 +16,18 @@ sent to ChatGPT, Claude, Gemini, or any other LLM.
 1. **Install Tesseract 5+** for your platform
    (`brew install tesseract`, `apt-get install tesseract-ocr`, or
    `choco install tesseract`). Python 3.11 or 3.12 required.
-2. **Install redact-ai** — the spaCy NER model used by ID-006 is
-   pulled automatically as a dependency (see
+2. **Clone, build, and run from source** — the spaCy NER model used
+   by ID-006 is pulled automatically as a dependency (see
    [ADR-011](./docs/DECISIONS.md); adds ~50 MB):
    ```bash
-   pipx install redact-ai           # end users
-   uv sync --extra dev              # contributors (from a checkout)
+   git clone https://github.com/nadeem-shaikh/redact-ai.git
+   cd redact-ai
+   uv sync --extra dev              # build: install runtime + dev deps
+   uv run redact-ai                 # run: opens http://127.0.0.1:<port>
    ```
-3. **Run:**
-   ```bash
-   redact-ai                        # opens http://127.0.0.1:<port>
-   ```
-4. **Drop a screenshot** onto the page. The redacted image plus a
+3. **Drop a screenshot** onto the page. The redacted image plus a
    summary appears in the same window.
-5. **Click "Download redacted image"** to save the safe copy; click
+4. **Click "Download redacted image"** to save the safe copy; click
    **"Download manifest"** for the JSON audit trail.
 
 Everything runs on your device. No telemetry, no outbound calls.
