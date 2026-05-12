@@ -229,3 +229,96 @@ def test_reocr_error_falls_back_to_original_token() -> None:
 
     texts = [t.text for t in doc.iter_tokens()]
     assert texts == ["garbage"]
+
+
+def test_per_page_reocr_budget_caps_calls() -> None:
+    """On a noisy scan with many sub-threshold tokens, re-OCR stops
+    after ``_REOCR_MAX_PER_PAGE`` attempts so OCR latency stays
+    bounded. Remaining low-confidence tokens are kept as-is."""
+    from redact_ai.pipeline.ocr import tesseract as adapter_module
+
+    # 100 tokens, all at conf 0.10 — every one is a re-OCR candidate.
+    first_pass_rows = [
+        (f"bad{i:03d}", 10, 10 + i * 20, 100, 15, 12, 1, 1, 1, i + 1) for i in range(100)
+    ]
+    first_pass = _td(first_pass_rows)
+    # Re-OCR returns one good replacement per call.
+    reocr_pass = _td([("ok", 95, 1, 1, 12, 10, 1, 1, 1, 1)])
+    ingested = ingest_bytes(_png_bytes(size=(3000, 200)), "image/png")
+    psm7_calls = 0
+
+    def _fake_image_to_data(image: Image.Image, **kwargs: Any) -> dict[str, list[Any]]:
+        nonlocal psm7_calls
+        config = kwargs.get("config", "")
+        if "--psm 7" in config:
+            psm7_calls += 1
+            return reocr_pass
+        return first_pass
+
+    with patch(
+        "redact_ai.pipeline.ocr.tesseract.pytesseract.image_to_data",
+        side_effect=_fake_image_to_data,
+    ):
+        with patch(
+            "redact_ai.pipeline.ocr.tesseract.shutil.which", return_value="/usr/bin/tesseract"
+        ):
+            doc = TesseractAdapter().recognise(ingested)
+
+    assert psm7_calls == adapter_module._REOCR_MAX_PER_PAGE
+    texts = [t.text for t in doc.iter_tokens()]
+    # First _REOCR_MAX_PER_PAGE tokens were refined; the rest stayed as
+    # the original low-confidence text.
+    refined_count = sum(1 for t in texts if t == "ok")
+    kept_count = sum(1 for t in texts if t.startswith("bad"))
+    assert refined_count == adapter_module._REOCR_MAX_PER_PAGE
+    assert refined_count + kept_count == 100
+
+
+def test_reocr_drops_tokens_outside_original_bbox() -> None:
+    """When the padded crop catches an adjacent word, the new token
+    sits entirely outside the original bbox and must be rejected so
+    we don't duplicate text already recognised elsewhere on the
+    line."""
+    # Original sub-threshold token at x=100..120 (w=20), conf 0.10.
+    # An adjacent typed word at x=150..200 already exists at full
+    # confidence in the first pass — re-OCR'ing the 3px-padded crop
+    # could pick it up and double-emit.
+    first_pass = _td(
+        [
+            ("noise", 10, 100, 50, 20, 12, 1, 1, 1, 1),
+            ("Alice", 95, 150, 50, 50, 12, 1, 1, 1, 2),
+        ]
+    )
+    # Re-OCR returns two tokens: one *outside* the original bbox
+    # (would be "Alice" picked up from the padding), one *inside*.
+    # Crop origin is x=97 (100-3 padding), so token at left=53 in
+    # crop coords lands at page x=150 — outside [100..120].
+    # Token at left=2 lands at page x=99 — overlaps the original.
+    reocr_pass = _td(
+        [
+            ("real", 95, 2, 1, 18, 10, 1, 1, 1, 1),
+            ("Alice", 95, 53, 1, 50, 10, 1, 1, 1, 2),
+        ]
+    )
+    ingested = ingest_bytes(_png_bytes(size=(400, 100)), "image/png")
+
+    def _fake_image_to_data(image: Image.Image, **kwargs: Any) -> dict[str, list[Any]]:
+        config = kwargs.get("config", "")
+        return reocr_pass if "--psm 7" in config else first_pass
+
+    with patch(
+        "redact_ai.pipeline.ocr.tesseract.pytesseract.image_to_data",
+        side_effect=_fake_image_to_data,
+    ):
+        with patch(
+            "redact_ai.pipeline.ocr.tesseract.shutil.which", return_value="/usr/bin/tesseract"
+        ):
+            doc = TesseractAdapter().recognise(ingested)
+
+    texts = [t.text for t in doc.iter_tokens()]
+    # The replacement ``real`` swapped in for ``noise``; the spurious
+    # ``Alice`` from the padding zone was rejected, leaving only the
+    # original ``Alice`` already on the line.
+    assert texts.count("Alice") == 1
+    assert "real" in texts
+    assert "noise" not in texts

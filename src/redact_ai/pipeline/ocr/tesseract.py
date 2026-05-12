@@ -54,6 +54,14 @@ _REOCR_REPLACEMENT_FLOOR: float = 0.75
 # re-OCR. A small margin gives Tesseract enough context to recognise
 # the character without bleeding in neighbouring tokens.
 _REOCR_CROP_PAD: int = 3
+# Hard cap on the number of per-token re-OCR calls per page. A heavily
+# noisy scan can have hundreds of sub-threshold tokens; without a cap
+# the refinement pass turns one Tesseract call into many and can blow
+# the OCR-stage latency budget. 50 is comfortably enough for the
+# realistic case (a typed form with a cursive-signature region: ~6
+# refinements) and bounds the worst case at 50× a single-line OCR
+# call, which is still small compared to a full-page pass.
+_REOCR_MAX_PER_PAGE: int = 50
 
 
 @lru_cache(maxsize=1)
@@ -100,12 +108,19 @@ class TesseractAdapter(OCRAdapter):
         )
 
     def _refine_low_confidence_tokens(self, page: Page, image: Image.Image) -> Page:
-        """Walk the page and re-OCR each below-threshold token in isolation."""
+        """Walk the page and re-OCR each below-threshold token in isolation.
+
+        Bounded by ``_REOCR_MAX_PER_PAGE`` so a noisy scan can't turn
+        one full-page OCR call into hundreds of crop calls. Once the
+        budget is exhausted any remaining sub-threshold tokens are
+        kept as-is.
+        """
+        budget = [_REOCR_MAX_PER_PAGE]
         new_blocks: list[Block] = []
         for block in page.blocks:
             new_lines: list[Line] = []
             for line in block.lines:
-                refined = self._refine_line(line, image)
+                refined = self._refine_line(line, image, budget)
                 new_lines.append(refined if refined is not None else line)
             if not new_lines:
                 continue
@@ -124,15 +139,21 @@ class TesseractAdapter(OCRAdapter):
             blocks=tuple(new_blocks),
         )
 
-    def _refine_line(self, line: Line, image: Image.Image) -> Line | None:
+    def _refine_line(self, line: Line, image: Image.Image, budget: list[int]) -> Line | None:
         """Return a new Line with replaced tokens, or ``None`` when no
-        token was refined (caller keeps the original)."""
+        token was refined (caller keeps the original).
+
+        ``budget`` is a single-element mutable list used as a shared
+        counter across the whole page walk; each re-OCR attempt
+        decrements it and the loop short-circuits when it hits zero.
+        """
         refined_any = False
         out: list[Token] = []
         for tok in line.tokens:
-            if tok.confidence > _REOCR_TOKEN_THRESHOLD:
+            if tok.confidence > _REOCR_TOKEN_THRESHOLD or budget[0] <= 0:
                 out.append(tok)
                 continue
+            budget[0] -= 1
             replacement = self._reocr_token(tok, image)
             if replacement is None:
                 out.append(tok)
@@ -151,7 +172,11 @@ class TesseractAdapter(OCRAdapter):
     def _reocr_token(self, tok: Token, image: Image.Image) -> list[Token] | None:
         """Crop the token's bbox + padding and re-run Tesseract as a
         single text line. Return the new tokens only when their
-        average confidence clears ``_REOCR_REPLACEMENT_FLOOR``."""
+        average confidence clears ``_REOCR_REPLACEMENT_FLOOR`` and
+        each new bbox geometrically overlaps the original token's
+        bbox (the 3px padded crop can pick up an adjacent word on
+        tightly spaced text; importing it would duplicate text that's
+        already on the line)."""
         pad = _REOCR_CROP_PAD
         x = max(0, tok.bbox.x - pad)
         y = max(0, tok.bbox.y - pad)
@@ -180,14 +205,19 @@ class TesseractAdapter(OCRAdapter):
             w = max(int(data["width"][i]), 1)
             h = max(int(data["height"][i]), 1)
             conf = _scale_confidence(data["conf"][i])
-            new_tokens.append(
-                Token(
-                    id=f"{tok.id}-r{i}",
-                    text=text,
-                    bbox=BBox(x=x + left, y=y + top, w=w, h=h),
-                    confidence=conf,
-                )
+            candidate = Token(
+                id=f"{tok.id}-r{i}",
+                text=text,
+                bbox=BBox(x=x + left, y=y + top, w=w, h=h),
+                confidence=conf,
             )
+            # Geometric guard: a new bbox that doesn't overlap the
+            # original at all came from the padding zone (an adjacent
+            # word). Drop it so we don't duplicate text already
+            # recognised elsewhere on the line.
+            if candidate.bbox.iou(tok.bbox) == 0.0:
+                continue
+            new_tokens.append(candidate)
         if not new_tokens:
             return None
         avg = sum(t.confidence for t in new_tokens) / len(new_tokens)
