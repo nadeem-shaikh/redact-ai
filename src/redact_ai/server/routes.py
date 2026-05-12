@@ -120,7 +120,9 @@ async def post_redact(
     if not token_matches(rai_csrf, x_redact_csrf):
         err = csrf_error()
         return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)
-    mime = (image.content_type or "").lower()
+    # Strip RFC 7231 media-type parameters (e.g. ``image/jpeg; charset=binary``)
+    # before the allowlist check so well-formed uploads aren't rejected.
+    mime = (image.content_type or "").split(";", 1)[0].strip().lower()
     if mime not in SUPPORTED_INPUT_MIMES:
         err = input_format_error(mime or "<unknown>")
         return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)

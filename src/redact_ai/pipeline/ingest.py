@@ -98,7 +98,15 @@ def ingest_bytes(data: bytes, mime_type: str) -> IngestedImage:
         with Image.open(io.BytesIO(data)) as probe:
             probe.load()
             detected_format = probe.format or ""
-            original = probe.convert("RGBA" if probe.mode == "RGBA" else "RGB")
+            # ``has_transparency_data`` (Pillow 11+) covers RGBA, LA, PA,
+            # and palette-mode images with a tRNS chunk — all of which
+            # carry alpha that we lose if we hard-convert to RGB.
+            keep_alpha = bool(getattr(probe, "has_transparency_data", False)) or probe.mode in {
+                "RGBA",
+                "LA",
+                "PA",
+            }
+            original = probe.convert("RGBA" if keep_alpha else "RGB")
     except (UnidentifiedImageError, OSError) as exc:
         raise input_format_error(mime_type) from exc
 

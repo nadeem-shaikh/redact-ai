@@ -128,3 +128,14 @@ def test_pdf_still_rejected() -> None:
     with pytest.raises(RedactError) as exc:
         ingest_bytes(b"%PDF-1.4\n%...", "application/pdf")
     assert exc.value.code == "E_INPUT_FORMAT"
+
+
+def test_palette_gif_with_transparency_keeps_alpha() -> None:
+    # Mode-P GIF with a transparent palette index must round-trip to
+    # the output PNG with its alpha intact.
+    img = Image.new("P", (32, 32), 0)
+    img.info["transparency"] = 0
+    buf = io.BytesIO()
+    img.save(buf, format="GIF")
+    ingested = ingest_bytes(buf.getvalue(), "image/gif")
+    assert ingested.original.mode == "RGBA"
