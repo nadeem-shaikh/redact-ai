@@ -87,13 +87,19 @@ def test_low_confidence_token_replaced_by_better_reocr() -> None:
         ):
             doc = TesseractAdapter().recognise(ingested)
 
-    texts = [t.text for t in doc.iter_tokens()]
+    tokens = list(doc.iter_tokens())
+    texts = [t.text for t in tokens]
     assert "Laura" in texts
     assert "Bennett," in texts
     assert "hl" not in texts
     # Original high-confidence tokens are preserved.
     assert "Reported" in texts
     assert "MD" in texts
+    # Replacement tokens carry the audit-trail ID suffix `-r{i}` so a
+    # reviewer can tell at a glance which tokens came from the
+    # per-token re-OCR pass versus the original whole-page pass.
+    replacements = [t for t in tokens if t.text in {"Laura", "Bennett,"}]
+    assert all("-r" in t.id for t in replacements)
 
 
 def test_low_confidence_token_kept_when_reocr_is_no_better() -> None:
@@ -156,6 +162,42 @@ def test_high_confidence_token_skips_reocr() -> None:
 
     # Only the first-pass call; no per-token re-OCR for high-confidence tokens.
     assert calls == ["--psm 6"]
+
+
+def test_threshold_and_floor_are_inclusive_at_the_boundary() -> None:
+    """Locks the boundary semantics:
+
+    - A token whose first-pass confidence equals ``_REOCR_TOKEN_THRESHOLD``
+      (0.40) *does* trigger re-OCR (the gate is ``> threshold``).
+    - A re-OCR'd token whose confidence equals ``_REOCR_REPLACEMENT_FLOOR``
+      (0.75) *is* accepted as a replacement (the gate is ``< floor``).
+    """
+    first_pass = _td(
+        [
+            ("edge", 40, 10, 20, 40, 12, 1, 1, 1, 1),
+        ]
+    )
+    reocr_pass = _td(
+        [
+            ("Edge", 75, 1, 1, 35, 10, 1, 1, 1, 1),
+        ]
+    )
+    ingested = ingest_bytes(_png_bytes(), "image/png")
+
+    def _fake_image_to_data(image: Image.Image, **kwargs: Any) -> dict[str, list[Any]]:
+        config = kwargs.get("config", "")
+        return reocr_pass if "--psm 7" in config else first_pass
+
+    with patch(
+        "redact_ai.pipeline.ocr.tesseract.pytesseract.image_to_data",
+        side_effect=_fake_image_to_data,
+    ):
+        with patch(
+            "redact_ai.pipeline.ocr.tesseract.shutil.which", return_value="/usr/bin/tesseract"
+        ):
+            doc = TesseractAdapter().recognise(ingested)
+
+    assert [t.text for t in doc.iter_tokens()] == ["Edge"]
 
 
 def test_reocr_error_falls_back_to_original_token() -> None:
