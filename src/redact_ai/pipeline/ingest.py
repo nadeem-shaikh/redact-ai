@@ -14,7 +14,12 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
+# Register the HEIC/HEIF and AVIF Pillow plugins on import so
+# ``Image.open`` recognises those byte streams. Both plugins call
+# ``Image.register_open`` as a side effect of being imported.
+import pillow_avif  # noqa: F401  -- imported for side effects
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from redact_ai.config import get_settings
 from redact_ai.errors import (
@@ -23,11 +28,35 @@ from redact_ai.errors import (
 )
 from redact_ai.models.document import AffineTransform
 
-_SUPPORTED: dict[str, str] = {
-    "image/png": "PNG",
-    "image/jpeg": "JPEG",
-    "image/webp": "WEBP",
+register_heif_opener()
+
+
+# MIME → (PIL formats accepted on input, output PIL format, output MIME).
+#
+# Some input formats (GIF, BMP, TIFF, HEIC/HEIF, AVIF) are either not
+# universally rendered by browsers or are unsuitable for the redacted
+# output (animated, multi-page, or no alpha). We re-encode those as the
+# closest browser-friendly format so the preview/download always works:
+#   - HEIC/HEIF → JPEG (similar lossy character)
+#   - AVIF      → WebP
+#   - GIF/BMP/TIFF → PNG (lossless, universal)
+_FORMATS: dict[str, tuple[frozenset[str], str, str]] = {
+    "image/png": (frozenset({"PNG"}), "PNG", "image/png"),
+    "image/jpeg": (frozenset({"JPEG"}), "JPEG", "image/jpeg"),
+    "image/jpg": (frozenset({"JPEG"}), "JPEG", "image/jpeg"),
+    "image/webp": (frozenset({"WEBP"}), "WEBP", "image/webp"),
+    "image/gif": (frozenset({"GIF"}), "PNG", "image/png"),
+    "image/bmp": (frozenset({"BMP"}), "PNG", "image/png"),
+    "image/x-bmp": (frozenset({"BMP"}), "PNG", "image/png"),
+    "image/x-ms-bmp": (frozenset({"BMP"}), "PNG", "image/png"),
+    "image/tiff": (frozenset({"TIFF"}), "PNG", "image/png"),
+    "image/x-tiff": (frozenset({"TIFF"}), "PNG", "image/png"),
+    "image/heic": (frozenset({"HEIF"}), "JPEG", "image/jpeg"),
+    "image/heif": (frozenset({"HEIF"}), "JPEG", "image/jpeg"),
+    "image/avif": (frozenset({"AVIF"}), "WEBP", "image/webp"),
 }
+
+SUPPORTED_INPUT_MIMES: frozenset[str] = frozenset(_FORMATS)
 
 # Tesseract is happiest at ~300 DPI / ≈1500 px on the long side. We
 # never *downscale* the input — we only upsample low-DPI screenshots —
@@ -46,7 +75,13 @@ class IngestedImage:
     """The post-preprocessing image fed to OCR. Always RGB."""
 
     mime_type: str
+    """Output MIME type — the format the redacted image will be encoded
+    as. Equals the input MIME for PNG/JPEG/WebP; for other inputs this
+    is the closest browser-friendly format (PNG / JPEG / WebP)."""
+
     pil_format: str
+    """Output PIL format string passed to ``Image.save(format=...)``."""
+
     transform: AffineTransform
     """Maps input pixel coordinates → ``normalised`` pixel coordinates."""
 
@@ -55,18 +90,27 @@ def ingest_bytes(data: bytes, mime_type: str) -> IngestedImage:
     settings = get_settings()
     if len(data) > settings.max_upload_bytes:
         raise input_too_large_error(len(data), settings.max_upload_bytes)
-    if mime_type not in _SUPPORTED:
+    if mime_type not in _FORMATS:
         raise input_format_error(mime_type)
+    accepted_formats, out_pil_format, out_mime_type = _FORMATS[mime_type]
 
     try:
         with Image.open(io.BytesIO(data)) as probe:
             probe.load()
             detected_format = probe.format or ""
-            original = probe.convert("RGBA" if probe.mode == "RGBA" else "RGB")
+            # ``has_transparency_data`` (Pillow 11+) covers RGBA, LA, PA,
+            # and palette-mode images with a tRNS chunk — all of which
+            # carry alpha that we lose if we hard-convert to RGB.
+            keep_alpha = bool(getattr(probe, "has_transparency_data", False)) or probe.mode in {
+                "RGBA",
+                "LA",
+                "PA",
+            }
+            original = probe.convert("RGBA" if keep_alpha else "RGB")
     except (UnidentifiedImageError, OSError) as exc:
         raise input_format_error(mime_type) from exc
 
-    if detected_format.upper() != _SUPPORTED[mime_type]:
+    if detected_format.upper() not in accepted_formats:
         raise input_format_error(mime_type)
 
     original = ImageOps.exif_transpose(original)
@@ -75,12 +119,17 @@ def ingest_bytes(data: bytes, mime_type: str) -> IngestedImage:
     original.info.pop("exif", None)
     original.info.pop("XML:com.adobe.xmp", None)
 
+    # JPEG and AVIF→WebP output can't carry an alpha channel safely;
+    # drop it now so the redactor's save() path doesn't surprise-fail.
+    if original.mode == "RGBA" and out_pil_format == "JPEG":
+        original = original.convert("RGB")
+
     normalised, transform = _normalise(original)
     return IngestedImage(
         original=original,
         normalised=normalised,
-        mime_type=mime_type,
-        pil_format=_SUPPORTED[mime_type],
+        mime_type=out_mime_type,
+        pil_format=out_pil_format,
         transform=transform,
     )
 

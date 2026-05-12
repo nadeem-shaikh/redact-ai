@@ -22,6 +22,7 @@ from redact_ai.errors import (
 from redact_ai.logging import get_logger
 from redact_ai.models.manifest import Manifest
 from redact_ai.pipeline import redact as run_pipeline
+from redact_ai.pipeline.ingest import SUPPORTED_INPUT_MIMES
 from redact_ai.policy.loader import builtin_policies, load_default_policy
 from redact_ai.policy.schema import (
     BlockStyle,
@@ -119,8 +120,10 @@ async def post_redact(
     if not token_matches(rai_csrf, x_redact_csrf):
         err = csrf_error()
         return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)
-    mime = (image.content_type or "").lower()
-    if mime not in {"image/png", "image/jpeg", "image/webp"}:
+    # Strip RFC 7231 media-type parameters (e.g. ``image/jpeg; charset=binary``)
+    # before the allowlist check so well-formed uploads aren't rejected.
+    mime = (image.content_type or "").split(";", 1)[0].strip().lower()
+    if mime not in SUPPORTED_INPUT_MIMES:
         err = input_format_error(mime or "<unknown>")
         return JSONResponse({"error": err.to_dict()}, status_code=err.http_status)
     data = await image.read()

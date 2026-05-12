@@ -9,7 +9,8 @@
     success: (n, k) => `Done. ${n} regions redacted across ${k} categories.`,
     noFindings: "No sensitive content found. Output is your original image.",
     errors: {
-      E_INPUT_FORMAT: "That file type isn't supported. Try PNG, JPEG, or WebP.",
+      E_INPUT_FORMAT:
+        "That file type isn't supported. Try PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/HEIF, or AVIF.",
       E_OCR: "We couldn't read text from that image. Try a sharper version.",
       E_REDACTION:
         "Something went wrong and we didn't produce an output. No data left your device.",
