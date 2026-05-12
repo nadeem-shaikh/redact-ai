@@ -85,3 +85,16 @@ def test_empty_findings_no_warning() -> None:
     out = _guard_oversized([], _doc(), warnings)
     assert out == []
     assert warnings == []
+
+
+def test_out_of_range_page_index_left_unchanged() -> None:
+    """If a finding's page_index doesn't resolve to a real page, we leave
+    it alone rather than crash with ``IndexError`` or apply the wrong
+    page's dimensions. ``Document`` is locked to a single page in v0.1
+    (see ``_exactly_one_page`` validator), so an oversized-looking
+    finding with ``page_index=5`` exercises the guard's bounds check."""
+    warnings: list[Warning] = []
+    findings = [_finding(800, 300).model_copy(update={"page_index": 5})]
+    out = _guard_oversized(findings, _doc(), warnings)
+    assert out == findings
+    assert warnings == []

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import secrets
 from collections import Counter
 
 from redact_ai.models.findings import Category, Finding
@@ -14,11 +16,23 @@ from redact_ai.policy.schema import Policy
 # while keeping the field compact.
 _MATCHED_TEXT_HASH_LEN: int = 16
 
+# Per-process HMAC key for audit hashes. Generated at import time and
+# never persisted; an attacker who steals the manifest cannot mount an
+# offline dictionary attack against low-entropy PII (names, phones,
+# emails) because they don't know the key. The trade-off is that
+# cross-restart audit comparison is intentionally lost — within a
+# single running process the hashes are still deterministic, which
+# preserves the in-process audit use case (e.g. comparing two runs of
+# the same input via DT-001).
+_AUDIT_HASH_KEY: bytes = secrets.token_bytes(32)
+
 
 def _matched_text_hash(text: str) -> str | None:
     if not text:
         return None
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_MATCHED_TEXT_HASH_LEN]
+    return hmac.new(_AUDIT_HASH_KEY, text.encode("utf-8"), hashlib.sha256).hexdigest()[
+        :_MATCHED_TEXT_HASH_LEN
+    ]
 
 
 def build_manifest(

@@ -84,7 +84,7 @@ def test_stats_count_by_category() -> None:
 
 
 def test_matched_text_hash_emitted_when_text_suppressed() -> None:
-    import hashlib
+    import re
 
     policy = load_default_policy()
     findings = [_finding("ID-001", "IDENTITY", 10, 10, 0)]
@@ -101,8 +101,33 @@ def test_matched_text_hash_emitted_when_text_suppressed() -> None:
     )
     out = manifest.findings[0]
     assert out.matched_text is None
-    expected = hashlib.sha256(b"secret-0").hexdigest()[:16]
-    assert out.matched_text_hash == expected
+    assert out.matched_text_hash is not None
+    # 16 hex chars (64-bit truncation of the HMAC); exact bytes depend
+    # on the per-process key so we only assert shape.
+    assert re.fullmatch(r"[0-9a-f]{16}", out.matched_text_hash)
+
+
+def test_matched_text_hash_keyed_per_process() -> None:
+    """Audit hashes are HMAC-keyed with a per-process random secret, so
+    the same input text never matches a precomputed dictionary entry
+    against an attacker who only sees the manifest."""
+    import hashlib
+
+    policy = load_default_policy()
+    findings = [_finding("ID-001", "IDENTITY", 10, 10, 0)]
+    manifest = build_manifest(
+        policy=policy,
+        runtime_version="0.1.0",
+        ocr_engine="tesseract-5.3.4",
+        input_hash="x" * 64,
+        output_hash="y" * 64,
+        created_at="2026-05-11T00:00:00Z",
+        findings=findings,
+        warnings=[],
+        include_matched_text=False,
+    )
+    naive = hashlib.sha256(b"secret-0").hexdigest()[:16]
+    assert manifest.findings[0].matched_text_hash != naive
 
 
 def test_matched_text_hash_omitted_for_empty_text() -> None:

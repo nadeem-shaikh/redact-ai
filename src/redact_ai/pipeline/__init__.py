@@ -206,17 +206,20 @@ _MAX_BBOX_AREA_FRACTION: float = 0.20
 def _guard_oversized(
     findings: list[Finding], document: Document, warnings: list[Warning]
 ) -> list[Finding]:
-    if not findings:
+    if not findings or not document.pages:
         return findings
-    page = document.pages[0]
-    page_area = page.width * page.height
-    if page_area <= 0:
-        return findings
-    limit = page_area * _MAX_BBOX_AREA_FRACTION
     out: list[Finding] = []
     flagged: list[str] = []
     for f in findings:
-        if f.bbox.area > limit:
+        if not (0 <= f.page_index < len(document.pages)):
+            out.append(f)
+            continue
+        page = document.pages[f.page_index]
+        page_area = page.width * page.height
+        if page_area <= 0:
+            out.append(f)
+            continue
+        if f.bbox.area > page_area * _MAX_BBOX_AREA_FRACTION:
             flagged.append(f.rule_id)
             out.append(f.model_copy(update={"confidence": "low"}))
         else:

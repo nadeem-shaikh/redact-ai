@@ -203,6 +203,7 @@
       }
       copyManifest.classList.add("is-copied");
       if (label) label.textContent = "Copied";
+      setStatus("Manifest copied to clipboard.");
       setTimeout(() => {
         copyManifest.classList.remove("is-copied");
         if (label) label.textContent = "Copy";
