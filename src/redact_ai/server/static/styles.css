@@ -207,6 +207,49 @@ pre {
   max-height: 320px;
 }
 
+.manifest-pane {
+  position: relative;
+}
+
+.manifest-pane pre {
+  margin: 0;
+}
+
+.copy-icon {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.85;
+  z-index: 1;
+}
+
+.copy-icon:hover,
+.copy-icon:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+  outline: none;
+}
+
+.copy-icon.is-copied {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.copy-icon-label {
+  line-height: 1;
+}
+
 footer {
   text-align: center;
   padding: 16px;

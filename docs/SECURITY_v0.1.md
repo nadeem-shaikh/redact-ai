@@ -112,6 +112,14 @@ in the requirements `FR-9.1`–`FR-9.7` in
 
 - Hashes in the manifest **MUST** use SHA-256 or stronger.
 - If signing is added, the system **MUST** use modern, audited primitives.
+- The per-finding `matched_text_hash` audit field is computed with
+  HMAC-SHA-256 keyed with a per-process secret generated at import
+  time (see `pipeline.report._AUDIT_HASH_KEY`). The keyed scheme
+  defeats offline dictionary attacks against low-entropy PII such as
+  names, phone numbers, and emails. The trade-off is that hashes are
+  comparable only across runs of the same process; cross-restart or
+  cross-machine audit comparison is intentionally out of scope for
+  v0.1.
 
 > TODO: Decide whether to sign manifests by default.
 

@@ -29,6 +29,7 @@
   const downloadLink = document.getElementById("download-link");
   const downloadManifest = document.getElementById("download-manifest");
   const copyImage = document.getElementById("copy-image");
+  const copyManifest = document.getElementById("copy-manifest");
   const manifestPreview = document.getElementById("manifest-preview");
 
   let currentFile = null;
@@ -178,6 +179,38 @@
       }
     } catch (err) {
       setStatus("Could not copy to clipboard. Try downloading instead.", true);
+    }
+  });
+
+  copyManifest.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!currentManifest) return;
+    const text = JSON.stringify(currentManifest, null, 2);
+    const label = copyManifest.querySelector(".copy-icon-label");
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "absolute";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      copyManifest.classList.add("is-copied");
+      if (label) label.textContent = "Copied";
+      setStatus("Manifest copied to clipboard.");
+      setTimeout(() => {
+        copyManifest.classList.remove("is-copied");
+        if (label) label.textContent = "Copy";
+      }, 1500);
+    } catch (err) {
+      setStatus("Could not copy manifest to clipboard.", true);
     }
   });
 

@@ -66,7 +66,33 @@
         </div>
         <details id="manifest-details">
           <summary>Show manifest</summary>
-          <pre id="manifest-preview"></pre>
+          <div class="manifest-pane">
+            <button
+              id="copy-manifest"
+              type="button"
+              class="copy-icon"
+              aria-label="Copy manifest JSON to clipboard"
+              title="Copy manifest JSON to clipboard"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect x="4" y="4" width="9" height="10" rx="1.5"></rect>
+                <path d="M10 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h1"></path>
+              </svg>
+              <span class="copy-icon-label">Copy</span>
+            </button>
+            <pre id="manifest-preview"></pre>
+          </div>
         </details>
       </section>
     </main>
