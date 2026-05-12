@@ -112,3 +112,19 @@ def test_masked_account_short_mask_run_not_matched() -> None:
     doc = make_doc(["*1234"])
     out = MaskedAccountDetector().detect(doc, load_default_policy())
     assert out == []
+
+
+def test_masked_account_lowercase_x_not_matched() -> None:
+    # Lowercase `x` is deliberately excluded to avoid colliding with
+    # tech tokens like `x86`. Locks the spec.
+    doc = make_doc(["xxxx1234"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert out == []
+
+
+def test_masked_account_sandwich_form() -> None:
+    doc = make_doc(["12****34"])
+    out = MaskedAccountDetector().detect(doc, load_default_policy())
+    assert len(out) == 1
+    assert out[0].rule_id == "FI-005"
+    assert out[0].confidence == "high"
