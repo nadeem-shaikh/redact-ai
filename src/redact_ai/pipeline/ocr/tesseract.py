@@ -3,6 +3,18 @@
 Uses ``pytesseract.image_to_data`` with ``output_type=DICT`` so we can
 recover token-level bboxes and confidences (FR-2.2, FR-2.4). The dict
 is then composed into the canonical ``Document`` tree (BUILD_SPEC §7.1).
+
+After the full-page pass, low-confidence tokens are individually
+re-OCR'd in isolation: the adapter crops each token's bbox (with a
+few pixels of padding) and runs Tesseract again with ``--psm 7``
+(single text line). Tesseract's whole-page layout analysis sometimes
+merges a typed row with adjacent noise — a cursive signature, an
+image edge, a chart legend — and emits gibberish tokens with very
+low confidence; re-running on the crop alone bypasses that
+contamination and recovers the underlying text. Replacement only
+happens when the new tokens average above the floor, so noisy
+regions (image artefacts) keep their original low-confidence tokens
+rather than being swapped for equally-bad alternatives.
 """
 
 from __future__ import annotations
@@ -28,6 +40,20 @@ from redact_ai.models.document import (
 )
 from redact_ai.pipeline.ingest import IngestedImage
 from redact_ai.pipeline.ocr.base import OCRAdapter
+
+# Tokens at or below this confidence trigger a per-token re-OCR pass.
+# 0.40 catches Tesseract's "I have no idea" output (typically 0.0–0.3)
+# while leaving merely-noisy text alone.
+_REOCR_TOKEN_THRESHOLD: float = 0.40
+# Re-OCR'd tokens replace the original only if their *average*
+# confidence clears this floor. Prevents swapping bad output for
+# equally-bad output (image artefacts that are unrecognisable text
+# under any pass).
+_REOCR_REPLACEMENT_FLOOR: float = 0.75
+# Pixels of padding around the cropped bbox passed to the per-token
+# re-OCR. A small margin gives Tesseract enough context to recognise
+# the character without bleeding in neighbouring tokens.
+_REOCR_CROP_PAD: int = 3
 
 
 @lru_cache(maxsize=1)
@@ -63,6 +89,7 @@ class TesseractAdapter(OCRAdapter):
             raise ocr_error(str(exc)) from exc
 
         page = _compose_page(data, page_size=image.size)
+        page = self._refine_low_confidence_tokens(page, image)
         source_hash = _hash_image(ingested.original)
         return Document(
             pages=(page,),
@@ -71,6 +98,102 @@ class TesseractAdapter(OCRAdapter):
             input_height=ingested.original.height,
             transform=ingested.transform,
         )
+
+    def _refine_low_confidence_tokens(self, page: Page, image: Image.Image) -> Page:
+        """Walk the page and re-OCR each below-threshold token in isolation."""
+        new_blocks: list[Block] = []
+        for block in page.blocks:
+            new_lines: list[Line] = []
+            for line in block.lines:
+                refined = self._refine_line(line, image)
+                new_lines.append(refined if refined is not None else line)
+            if not new_lines:
+                continue
+            new_blocks.append(
+                Block(
+                    id=block.id,
+                    bbox=_union(line.bbox for line in new_lines),
+                    lines=tuple(new_lines),
+                    block_type=block.block_type,
+                )
+            )
+        return Page(
+            index=page.index,
+            width=page.width,
+            height=page.height,
+            blocks=tuple(new_blocks),
+        )
+
+    def _refine_line(self, line: Line, image: Image.Image) -> Line | None:
+        """Return a new Line with replaced tokens, or ``None`` when no
+        token was refined (caller keeps the original)."""
+        refined_any = False
+        out: list[Token] = []
+        for tok in line.tokens:
+            if tok.confidence > _REOCR_TOKEN_THRESHOLD:
+                out.append(tok)
+                continue
+            replacement = self._reocr_token(tok, image)
+            if replacement is None:
+                out.append(tok)
+            else:
+                out.extend(replacement)
+                refined_any = True
+        if not refined_any or not out:
+            return None
+        return Line(
+            id=line.id,
+            bbox=_union(t.bbox for t in out),
+            tokens=tuple(out),
+            reading_order=line.reading_order,
+        )
+
+    def _reocr_token(self, tok: Token, image: Image.Image) -> list[Token] | None:
+        """Crop the token's bbox + padding and re-run Tesseract as a
+        single text line. Return the new tokens only when their
+        average confidence clears ``_REOCR_REPLACEMENT_FLOOR``."""
+        pad = _REOCR_CROP_PAD
+        x = max(0, tok.bbox.x - pad)
+        y = max(0, tok.bbox.y - pad)
+        x2 = min(image.width, tok.bbox.x + tok.bbox.w + pad)
+        y2 = min(image.height, tok.bbox.y + tok.bbox.h + pad)
+        if x2 <= x + 1 or y2 <= y + 1:
+            return None
+        crop = image.crop((x, y, x2, y2))
+        try:
+            data = pytesseract.image_to_data(
+                crop,
+                lang=self.lang,
+                output_type=pytesseract.Output.DICT,
+                config="--psm 7",
+            )
+        except pytesseract.TesseractError:
+            return None
+        new_tokens: list[Token] = []
+        n = len(data.get("text", []))
+        for i in range(n):
+            text = (data["text"][i] or "").strip()
+            if not text:
+                continue
+            left = int(data["left"][i])
+            top = int(data["top"][i])
+            w = max(int(data["width"][i]), 1)
+            h = max(int(data["height"][i]), 1)
+            conf = _scale_confidence(data["conf"][i])
+            new_tokens.append(
+                Token(
+                    id=f"{tok.id}-r{i}",
+                    text=text,
+                    bbox=BBox(x=x + left, y=y + top, w=w, h=h),
+                    confidence=conf,
+                )
+            )
+        if not new_tokens:
+            return None
+        avg = sum(t.confidence for t in new_tokens) / len(new_tokens)
+        if avg < _REOCR_REPLACEMENT_FLOOR:
+            return None
+        return new_tokens
 
 
 def _compose_page(data: dict[str, Any], *, page_size: tuple[int, int]) -> Page:
