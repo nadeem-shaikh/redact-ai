@@ -161,7 +161,9 @@ def test_high_confidence_token_skips_reocr() -> None:
             TesseractAdapter().recognise(ingested)
 
     # Only the first-pass call; no per-token re-OCR for high-confidence tokens.
-    assert calls == ["--psm 6"]
+    assert len(calls) == 1
+    assert "--psm 6" in calls[0]
+    assert all("--psm 7" not in c for c in calls)
 
 
 def test_threshold_and_floor_are_inclusive_at_the_boundary() -> None:
@@ -233,18 +235,23 @@ def test_reocr_error_falls_back_to_original_token() -> None:
 
 def test_reocr_timeout_falls_back_to_original_token() -> None:
     """``pytesseract`` raises ``RuntimeError`` when the per-token
-    ``timeout`` elapses. The adapter must catch it and keep the
-    original token rather than failing the whole OCR stage."""
+    ``timeout`` elapses. The adapter must (a) forward the configured
+    timeout to ``image_to_data`` and (b) catch the ``RuntimeError`` so
+    a stuck subprocess doesn't fail the whole OCR stage."""
+    from redact_ai.pipeline.ocr import tesseract as adapter_module
+
     first_pass = _td(
         [
             ("noise", 5, 50, 100, 60, 14, 1, 1, 1, 1),
         ]
     )
     ingested = ingest_bytes(_png_bytes(), "image/png")
+    seen_timeouts: list[Any] = []
 
     def _fake_image_to_data(image: Image.Image, **kwargs: Any) -> dict[str, list[Any]]:
         config = kwargs.get("config", "")
         if "--psm 7" in config:
+            seen_timeouts.append(kwargs.get("timeout"))
             raise RuntimeError("Tesseract process timeout")
         return first_pass
 
@@ -259,6 +266,8 @@ def test_reocr_timeout_falls_back_to_original_token() -> None:
 
     texts = [t.text for t in doc.iter_tokens()]
     assert texts == ["noise"]
+    # The configured timeout reached the per-token OCR call.
+    assert seen_timeouts == [adapter_module._REOCR_TIMEOUT_S]
 
 
 def test_per_page_reocr_budget_caps_calls() -> None:
