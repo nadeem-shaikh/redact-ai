@@ -21,21 +21,24 @@
       "rule_id": "ID-001",
       "category": "IDENTITY",
       "bbox": { "x": 48, "y": 96, "w": 184, "h": 22 },
-      "confidence": "high"
+      "confidence": "high",
+      "matched_text_hash": "9b1a4f0c2e8d6537"
     },
     {
       "id": "f-CO-003-0",
       "rule_id": "CO-003",
       "category": "CONTACT",
       "bbox": { "x": 48, "y": 124, "w": 312, "h": 44 },
-      "confidence": "high"
+      "confidence": "high",
+      "matched_text_hash": "3c7d2e1f0a9b8e6d"
     },
     {
       "id": "f-FI-002-0",
       "rule_id": "FI-002",
       "category": "FINANCIAL",
       "bbox": { "x": 120, "y": 192, "w": 296, "h": 22 },
-      "confidence": "high"
+      "confidence": "high",
+      "matched_text_hash": "5d4c3b2a1f0e9d8c"
     }
   ],
   "warnings": []

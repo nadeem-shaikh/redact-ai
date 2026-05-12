@@ -21,6 +21,12 @@ class FindingOut(BaseModel):
     bbox: BBox
     confidence: Confidence
     matched_text: str | None = None
+    # Truncated SHA-256 of the matched text. Always emitted (independent
+    # of ``verbose_report``) so reviewers can verify that two runs of the
+    # same input redact the same spans without exposing PHI/PII back
+    # through the audit channel. ``None`` for vision detectors whose
+    # match has no text content (e.g. ID-007 face bboxes).
+    matched_text_hash: str | None = None
 
 
 class Stats(BaseModel):

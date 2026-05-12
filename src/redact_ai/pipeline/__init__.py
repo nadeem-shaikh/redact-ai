@@ -67,7 +67,8 @@ def redact(
     findings = _run_detectors(document, policy, warnings)
     findings.extend(_run_vision_detectors(ingested, policy, warnings))
     merged = merge_findings(findings)
-    final = _apply_thresholds(merged, policy, warnings)
+    guarded = _guard_oversized(merged, document, warnings)
+    final = _apply_thresholds(guarded, policy, warnings)
 
     style = _effective_style(policy, warnings)
     try:
@@ -189,6 +190,48 @@ def _run_vision_detectors(
             Warning(
                 code="W_DETECTOR_PARTIAL_FAILURE",
                 message="One or more detectors errored; others ran.",
+                source="detect",
+            )
+        )
+    return out
+
+
+# A single finding spanning more than this fraction of the page area is
+# almost always a bbox-merge artefact rather than a real entity. We
+# downgrade its confidence to ``low`` (so stricter-threshold policies can
+# drop it) and surface a warning that names the offending rule ids.
+_MAX_BBOX_AREA_FRACTION: float = 0.20
+
+
+def _guard_oversized(
+    findings: list[Finding], document: Document, warnings: list[Warning]
+) -> list[Finding]:
+    if not findings:
+        return findings
+    page = document.pages[0]
+    page_area = page.width * page.height
+    if page_area <= 0:
+        return findings
+    limit = page_area * _MAX_BBOX_AREA_FRACTION
+    out: list[Finding] = []
+    flagged: list[str] = []
+    for f in findings:
+        if f.bbox.area > limit:
+            flagged.append(f.rule_id)
+            out.append(f.model_copy(update={"confidence": "low"}))
+        else:
+            out.append(f)
+    if flagged:
+        unique = sorted(set(flagged))
+        warnings.append(
+            Warning(
+                code="W_OVERSIZED_REDACTION",
+                message=(
+                    f"{len(flagged)} finding(s) exceeded "
+                    f"{int(_MAX_BBOX_AREA_FRACTION * 100)}% of page area "
+                    f"and were downgraded to low confidence "
+                    f"(rules: {', '.join(unique)})."
+                ),
                 source="detect",
             )
         )

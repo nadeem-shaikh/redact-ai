@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections import Counter
 
 from redact_ai.models.findings import Category, Finding
 from redact_ai.models.manifest import FindingOut, Manifest, Stats, Warning
 from redact_ai.policy.schema import Policy
+
+# Truncate the audit hash to 16 hex chars (64 bits). Enough collision
+# resistance for cross-referencing findings within a single manifest
+# while keeping the field compact.
+_MATCHED_TEXT_HASH_LEN: int = 16
+
+
+def _matched_text_hash(text: str) -> str | None:
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_MATCHED_TEXT_HASH_LEN]
 
 
 def build_manifest(
@@ -39,6 +51,7 @@ def build_manifest(
                 bbox=f.bbox,
                 confidence=f.confidence,
                 matched_text=f.matched_text if include_matched_text else None,
+                matched_text_hash=_matched_text_hash(f.matched_text),
             )
         )
     stats = Stats(
