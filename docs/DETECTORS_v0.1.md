@@ -434,6 +434,53 @@ Locale: **`en-US` only in v0.1**.
 
 ---
 
+## ML ENGINE
+
+### ML-001 — GLiNER strong PII engine (optional)
+
+- **Approach:** Statistical, transformer-based generalist NER. A single
+  model scores a configurable label schema over each OCR line in one
+  deterministic forward pass, catching PII across every category that
+  the regex/dictionary/label rules miss (non-Western names, unlabeled
+  IDs, addresses without a street suffix, PHI in prose). Complements —
+  does not replace — the deterministic detectors, which stay
+  authoritative for structured identifiers (Luhn PANs, IBAN mod-97,
+  cloud-key prefixes). See ADR-013.
+- **Engine:** [GLiNER](https://github.com/urchade/GLiNER) via the
+  `gliner` package. Default model `urchade/gliner_multi_pii-v1`; the
+  SOTA `GLiNER2-PII` checkpoint or `nvidia/gliner-PII` are reachable via
+  the policy `overrides.model` field.
+- **Packaging:** Optional. Ships in the `redact-ai[strong]` extra and is
+  `enabled: false` in the default policy. Enable it (and install the
+  extra) via `examples/strong_policy.yaml`. Registering the detector
+  does not pull torch — `gliner` is imported lazily on first use.
+- **Match rule:** For every OCR line, run `predict_entities(text,
+  labels, threshold)`. Each returned entity's label is mapped to a
+  redact-ai `Category` via the label→category map; character offsets are
+  mapped back to OCR tokens with the same `tokens_covering` helper the
+  regex detectors use.
+- **Category:** Per finding, from the label map (a single detector spans
+  multiple categories). Default map: person / DOB / passport / driver's
+  license / SSN / national-id / tax-id → `IDENTITY`; email / phone /
+  address → `CONTACT`; credit-card / bank-account / IBAN → `FINANCIAL`;
+  medical-record-number / health-condition → `HEALTH`; api-key /
+  password / secret → `CREDENTIALS`; gps-coordinates → `LOCATION`.
+- **Confidence:** From the model span score — `HIGH` ≥ 0.85, `MEDIUM` ≥
+  0.65, else `LOW` — then capped by the OCR token-confidence floor via
+  `cap_confidence`.
+- **Overrides:** `model` (str), `score_threshold` (float in `[0, 1]`),
+  `labels` (`{label: category}` map). Invalid overrides raise `E_POLICY`.
+- **Determinism:** Model in eval mode with greedy/argmax decoding — a
+  pure function of `(model version, input)` on a fixed machine (NFR-2.3).
+- **Local-first:** Model resolves from the local Hugging Face cache;
+  fetching is an install/first-load step, not a redaction-hot-path
+  network call (ADR-002).
+- **Fail-closed:** Enabled without the `gliner` package or model → the
+  detector raises `E_POLICY` with an install hint (ADR-005), the same
+  contract as ID-006.
+
+---
+
 ## Detector Registry
 
 `pipeline/detect/registry.py` exposes:
@@ -462,10 +509,13 @@ REGISTRY: dict[str, type[Detector]] = {
     "CR-003": CloudKeyDetector,
     "LO-001": GpsCoordsDetector,
     "CU-001": CustomRegexDetector,
+    "ML-001": GlinerPiiDetector,  # optional strong engine (ADR-013)
 }
 ```
 
-`LO-002` is intentionally absent from the v0.1 registry.
+`LO-002` is intentionally absent from the v0.1 registry. `ML-001` is
+registered but disabled by default and only runs when the
+`redact-ai[strong]` extra is installed and the rule is enabled in policy.
 
 ---
 

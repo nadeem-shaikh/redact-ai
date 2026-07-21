@@ -1,0 +1,116 @@
+# redact-ai — strong policy (ML engine enabled)
+#
+# Same as the default strict policy, but with the GLiNER strong PII engine
+# (ML-001 / ADR-013) enabled for higher recall across every category.
+#
+# Requires the optional runtime:
+#   pip install "redact-ai[strong]"
+# The GLiNER model is fetched on first load and cached on-device (ADR-002).
+#
+# Run with:
+#   redact-ai --policy examples/strong_policy.yaml
+#
+# Override the model (e.g. to the SOTA GLiNER2-PII checkpoint) or tune the score
+# threshold / label map via the ML-001 `overrides` block below.
+
+id: strong
+version: 0.1.0
+description: Strict policy with the GLiNER strong PII engine (ML-001) enabled for higher cross-category recall. Requires the redact-ai[strong] extra.
+posture: strict
+verbose_report: false
+
+redaction_style:
+  kind: block
+  color: "#000000"
+  padding_px: 2
+
+detectors:
+  # --- IDENTITY ---
+  - id: ID-001
+    enabled: true
+    threshold: low
+  - id: ID-002
+    enabled: true
+    threshold: low
+  - id: ID-003
+    enabled: true
+    threshold: low
+  - id: ID-004
+    enabled: true
+    threshold: low
+  - id: ID-005
+    enabled: true
+    threshold: medium
+  - id: ID-006
+    enabled: true
+    threshold: low
+  - id: ID-007
+    enabled: true
+    threshold: medium
+  - id: ID-008
+    enabled: true
+    threshold: low
+
+  # --- CONTACT ---
+  - id: CO-001
+    enabled: true
+    threshold: low
+  - id: CO-002
+    enabled: true
+    threshold: low
+  - id: CO-003
+    enabled: true
+    threshold: medium
+
+  # --- FINANCIAL ---
+  - id: FI-001
+    enabled: true
+    threshold: low
+  - id: FI-002
+    enabled: true
+    threshold: low
+  - id: FI-003
+    enabled: true
+    threshold: medium
+  - id: FI-004
+    enabled: true
+    threshold: low
+  - id: FI-005
+    enabled: true
+    threshold: low
+
+  # --- HEALTH ---
+  - id: HE-001
+    enabled: true
+    threshold: low
+  - id: HE-002
+    enabled: false
+  - id: HE-003
+    enabled: false
+
+  # --- CREDENTIALS ---
+  - id: CR-001
+    enabled: true
+    threshold: medium
+  - id: CR-002
+    enabled: true
+    threshold: low
+  - id: CR-003
+    enabled: true
+    threshold: low
+
+  # --- LOCATION ---
+  - id: LO-001
+    enabled: true
+    threshold: low
+
+  # --- ML ENGINE (strong) ---
+  # GLiNER generalist PII engine — complements the deterministic detectors
+  # above. Overridable knobs shown inline (defaults apply when omitted):
+  #   overrides:
+  #     model: urchade/gliner_multi_pii-v1   # or a GLiNER2-PII checkpoint
+  #     score_threshold: 0.5                 # 0..1 span score cutoff
+  #     labels: { "person": IDENTITY, ... }  # label -> category map
+  - id: ML-001
+    enabled: true
+    threshold: low

@@ -102,3 +102,12 @@ detectors:
 
   # --- CUSTOM ---
   # CU-001 omitted; users add it explicitly when authoring custom policies.
+
+  # --- ML ENGINE (optional extra) ---
+  # ML-001 is the GLiNER strong PII engine (ADR-013). Disabled by default: it
+  # ships in the `redact-ai[strong]` extra and pulls a transformer model. Enable
+  # it (and install the extra) to raise recall across every category — see
+  # examples/strong_policy.yaml.
+  - id: ML-001
+    enabled: false
+    threshold: low
