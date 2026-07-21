@@ -59,7 +59,10 @@ ocr-paddle = [
 # redaction hot path makes no network call (ADR-002). Enable ML-001 in policy
 # (see examples/strong_policy.yaml) after installing this extra.
 strong = [
-    "gliner>=0.2.5",
+    # Exact pin (matching every other dependency in this project) so the same
+    # redact-ai release always resolves the same GLiNER/transformers/torch code
+    # and ML-001 stays reproducible. Bump deliberately.
+    "gliner==0.2.5",
 ]
 dev = [
     "pytest==8.3.4",

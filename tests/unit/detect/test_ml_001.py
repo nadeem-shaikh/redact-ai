@@ -56,7 +56,11 @@ class FakeGliner:
 
 
 def _use_fake(monkeypatch: pytest.MonkeyPatch, spans: list[tuple[str, str, float]]) -> None:
-    monkeypatch.setattr(ner_gliner, "_load_gliner", lambda model_name: FakeGliner(spans))
+    monkeypatch.setattr(
+        ner_gliner,
+        "_load_gliner",
+        lambda model_name, revision, local_files_only: FakeGliner(spans),
+    )
 
 
 def _policy_with_ml_overrides(overrides: dict[str, object]) -> Policy:
@@ -135,7 +139,7 @@ def test_unknown_label_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_missing_gliner_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise(model_name: str) -> object:
+    def _raise(model_name: str, revision: object, local_files_only: object) -> object:
         raise RuntimeError("GLiNER is required for ML-001 but is not installed.")
 
     monkeypatch.setattr(ner_gliner, "_load_gliner", _raise)
@@ -145,17 +149,50 @@ def test_missing_gliner_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.code == "E_POLICY"
 
 
-def test_model_override_applied(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, str] = {}
+def _capture_loader(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    seen: dict[str, object] = {}
 
-    def _loader(model_name: str) -> object:
+    def _loader(model_name: str, revision: object, local_files_only: object) -> object:
         seen["model"] = model_name
+        seen["revision"] = revision
+        seen["local_files_only"] = local_files_only
         return FakeGliner([("Nadeem Shaikh", "person", 0.9)])
 
     monkeypatch.setattr(ner_gliner, "_load_gliner", _loader)
-    policy = _policy_with_ml_overrides({"model": "urchade/gliner_multi_pii-v1"})
+    return seen
+
+
+def test_default_model_and_revision_are_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _capture_loader(monkeypatch)
+    GlinerPiiDetector().detect(make_doc(["Nadeem Shaikh"]), load_default_policy())
+    assert seen["model"] == ner_gliner._DEFAULT_MODEL
+    # Default weights are pinned to an immutable revision, loaded offline.
+    assert seen["revision"] == ner_gliner._DEFAULT_MODEL_REVISION
+    assert seen["local_files_only"] is True
+
+
+def test_model_override_unpins_default_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _capture_loader(monkeypatch)
+    policy = _policy_with_ml_overrides({"model": "nvidia/gliner-PII"})
     GlinerPiiDetector().detect(make_doc(["Nadeem Shaikh"]), policy)
-    assert seen["model"] == "urchade/gliner_multi_pii-v1"
+    assert seen["model"] == "nvidia/gliner-PII"
+    # A different repo has its own history — the default SHA must not leak onto it.
+    assert seen["revision"] is None
+
+
+def test_revision_override_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _capture_loader(monkeypatch)
+    policy = _policy_with_ml_overrides({"model": "nvidia/gliner-PII", "revision": "abc123"})
+    GlinerPiiDetector().detect(make_doc(["Nadeem Shaikh"]), policy)
+    assert seen["revision"] == "abc123"
+
+
+def test_allow_download_toggles_local_files_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _capture_loader(monkeypatch)
+    policy = _policy_with_ml_overrides({"allow_download": True})
+    GlinerPiiDetector().detect(make_doc(["Nadeem Shaikh"]), policy)
+    # allow_download True → the loader is permitted to fetch (local_files_only False).
+    assert seen["local_files_only"] is False
 
 
 def test_score_threshold_override_filters(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,6 +213,9 @@ def test_label_map_override(monkeypatch: pytest.MonkeyPatch) -> None:
     "overrides",
     [
         {"model": ""},
+        {"revision": ""},
+        {"revision": 123},
+        {"allow_download": "yes"},
         {"score_threshold": 2},
         {"score_threshold": True},
         {"score_threshold": "high"},

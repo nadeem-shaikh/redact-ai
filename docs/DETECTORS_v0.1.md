@@ -468,16 +468,23 @@ Locale: **`en-US` only in v0.1**.
 - **Confidence:** From the model span score — `HIGH` ≥ 0.85, `MEDIUM` ≥
   0.65, else `LOW` — then capped by the OCR token-confidence floor via
   `cap_confidence`.
-- **Overrides:** `model` (str), `score_threshold` (float in `[0, 1]`),
-  `labels` (`{label: category}` map). Invalid overrides raise `E_POLICY`.
-- **Determinism:** Model in eval mode with greedy/argmax decoding — a
-  pure function of `(model version, input)` on a fixed machine (NFR-2.3).
-- **Local-first:** Model resolves from the local Hugging Face cache;
-  fetching is an install/first-load step, not a redaction-hot-path
-  network call (ADR-002).
-- **Fail-closed:** Enabled without the `gliner` package or model → the
-  detector raises `E_POLICY` with an install hint (ADR-005), the same
-  contract as ID-006.
+- **Overrides:** `model` (str), `revision` (str — commit/tag to pin the
+  weights; a bare `model` override clears the default's pinned revision),
+  `score_threshold` (float in `[0, 1]`), `labels` (`{label: category}`
+  map), `allow_download` (bool, default `false`). Invalid overrides raise
+  `E_POLICY`.
+- **Determinism:** Model in eval mode with greedy/argmax decoding, and the
+  default weights pinned to an immutable commit revision — a pure function
+  of `(model revision, input)` on a fixed machine (NFR-2.3).
+- **Local-first:** Loaded with `local_files_only` from the local Hugging
+  Face cache; the redaction hot path never reaches the network (ADR-002).
+  Pre-fetch once with `huggingface-cli download <model> --revision <rev>`,
+  or set `allow_download: true` for a one-time online fetch. A cold cache
+  fails closed rather than blocking on the network.
+- **Fail-closed:** Enabled without the `gliner` package or a cached model →
+  the detector raises `E_POLICY`, and the pipeline treats that as **fatal**
+  for the whole request (not a partial-failure warning), so a run never
+  silently completes missing the engine the user opted into (ADR-005).
 
 ---
 

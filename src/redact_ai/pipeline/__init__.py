@@ -139,6 +139,14 @@ def _run_detectors(document: Document, policy: Policy, warnings: list[Warning]) 
         try:
             out.extend(detector.detect(document, policy))
             succeeded += 1
+        except RedactError:
+            # A configuration/availability failure (E_POLICY) — e.g. an opted-in
+            # engine whose optional extra or model is missing — must fail the
+            # whole request, not degrade to a partial-failure warning. Otherwise
+            # the run completes silently missing the PII classes that detector
+            # was enabled to catch (ADR-005 fail-closed). Only genuinely
+            # unexpected runtime detector bugs are tolerated below (FR-8.2).
+            raise
         except Exception as exc:
             errors.append(f"{detector.rule_id}: {exc}")
             log.warning(

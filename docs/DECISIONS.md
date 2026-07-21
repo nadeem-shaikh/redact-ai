@@ -416,18 +416,23 @@ Entry template:
     policy handle (one threshold, one switch) while each
     `Finding.category` comes from a configurable label→category map, so
     merge/threshold/report logic is unchanged.
-  - **Default model `urchade/gliner_multi_pii-v1`** (stable runtime,
-    proven); GLiNER2-PII and `nvidia/gliner-PII` are reachable via
-    `overrides.model`. Score threshold and label map are also
-    policy-overridable.
+  - **Default model `urchade/gliner_multi_pii-v1`, pinned to an immutable
+    commit revision** (stable runtime, proven); GLiNER2-PII and
+    `nvidia/gliner-PII` are reachable via `overrides.model` (+ `revision`).
+    Score threshold, label map, and `allow_download` are also
+    policy-overridable. The `gliner` runtime is exact-pinned in the extra.
   - **Determinism (NFR-2.3):** model loaded in eval mode, greedy/argmax
-    decoding, no sampling. `gliner` is imported lazily inside the cached
-    loader so registering the detector never pulls torch.
-  - **Local-first (ADR-002):** the model resolves from the local
-    Hugging Face cache; fetching is an install/first-load step, not a
-    redaction-hot-path call.
-  - **Fail-closed (ADR-005):** enabled without the extra or model →
-    `E_POLICY` with an install hint, the same contract as `ID-006`.
+    decoding, no sampling, weights pinned by revision — a pure function of
+    `(model revision, input)`. `gliner` is imported lazily inside the
+    cached loader so registering the detector never pulls torch.
+  - **Local-first (ADR-002):** loaded with `local_files_only` from the
+    local Hugging Face cache — the redaction hot path never touches the
+    network. Fetching is an explicit install/prefetch step (or a one-time
+    `allow_download: true`); a cold cache fails closed.
+  - **Fail-closed (ADR-005):** enabled without the extra or a cached model
+    → `E_POLICY`, which the pipeline propagates as **fatal** for the whole
+    request rather than downgrading to a partial-failure warning, so an
+    opted-in run never silently misses the strong engine's PII classes.
 - **Consequences:**
   - Base install and its footprint are unchanged; only opt-in users pay
     the ~200–300 MB model + torch cost.
