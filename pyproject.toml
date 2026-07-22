@@ -53,6 +53,17 @@ ocr-paddle = [
     "paddleocr==2.9.1",
     "paddlepaddle==2.6.2",
 ]
+# Strong PII engine (ML-001 / ADR-013). Pulls the GLiNER runtime — and its
+# torch/transformers/huggingface-hub chain — only when the user opts in. The
+# model is fetched from Hugging Face on first load and cached on-device; the
+# redaction hot path makes no network call (ADR-002). Enable ML-001 in policy
+# (see examples/strong_policy.yaml) after installing this extra.
+strong = [
+    # Exact pin (matching every other dependency in this project) so the same
+    # redact-ai release always resolves the same GLiNER/transformers/torch code
+    # and ML-001 stays reproducible. Bump deliberately.
+    "gliner==0.2.5",
+]
 dev = [
     "pytest==8.3.4",
     "pytest-cov==6.0.0",

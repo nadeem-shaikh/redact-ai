@@ -382,4 +382,68 @@ Entry template:
 
 ---
 
+## ADR-013 — Add GLiNER as an optional strong PII engine (ML-001)
+
+- **Date:** 2026-07-21
+- **Status:** Accepted
+- **Context:** The v0.1 detect stage is regex + dictionary +
+  label-trigger rules plus spaCy `en_core_web_md` (`ID-006`,
+  PERSON-only, en-US). Recall is structurally bounded to what those
+  rules encode: non-Western names, unlabeled IDs, addresses without a
+  street suffix, and PHI in prose are missed. Adding more regex chases
+  the long tail forever. A generalist ML NER raises the floor across
+  every category at once. The constraint is that the engine must not
+  weaken the two guarantees that define the product: local-first
+  operation (ADR-002) and deterministic output (NFR-2.3), and it must
+  not bloat the base install (the same footprint concern as ADR-011).
+- **Decision:** Introduce rule **ML-001 GlinerPiiDetector**, a
+  transformer-based generalist PII engine built on **GLiNER** — the
+  current best OSS PII NER (GLiNER2-PII leads the SPY span-F1
+  benchmark; the encoder scores an arbitrary label schema in a single
+  deterministic forward pass and runs on CPU). It **complements** the
+  deterministic detectors rather than replacing them: regex+checksum
+  stays authoritative for structured identifiers (Luhn PANs, IBAN
+  mod-97, cloud-key prefixes) where a validator beats a probabilistic
+  model.
+  - **Optional, disabled by default.** The runtime ships in the
+    `redact-ai[strong]` extra (`gliner` + its torch/transformers/
+    huggingface-hub chain). `ML-001` is present but `enabled: false` in
+    the shipped policy, so a base install never imports GLiNER. Users
+    opt in with `pip install redact-ai[strong]` and the enabled
+    `examples/strong_policy.yaml`.
+  - **Single rule id, per-finding category.** The rule-id regex
+    (`^[A-Z]{2}-[0-9]{3}$`) forbids a cross-category id; `ML-001` is the
+    policy handle (one threshold, one switch) while each
+    `Finding.category` comes from a configurable label→category map, so
+    merge/threshold/report logic is unchanged.
+  - **Default model `urchade/gliner_multi_pii-v1`, pinned to an immutable
+    commit revision** (stable runtime, proven); GLiNER2-PII and
+    `nvidia/gliner-PII` are reachable via `overrides.model` (+ `revision`).
+    Score threshold, label map, and `allow_download` are also
+    policy-overridable. The `gliner` runtime is exact-pinned in the extra.
+  - **Determinism (NFR-2.3):** model loaded in eval mode, greedy/argmax
+    decoding, no sampling, weights pinned by revision — a pure function of
+    `(model revision, input)`. `gliner` is imported lazily inside the
+    cached loader so registering the detector never pulls torch.
+  - **Local-first (ADR-002):** loaded with `local_files_only` from the
+    local Hugging Face cache — the redaction hot path never touches the
+    network. Fetching is an explicit install/prefetch step (or a one-time
+    `allow_download: true`); a cold cache fails closed.
+  - **Fail-closed (ADR-005):** enabled without the extra or a cached model
+    → `E_POLICY`, which the pipeline propagates as **fatal** for the whole
+    request rather than downgrading to a partial-failure warning, so an
+    opted-in run never silently misses the strong engine's PII classes.
+- **Consequences:**
+  - Base install and its footprint are unchanged; only opt-in users pay
+    the ~200–300 MB model + torch cost.
+  - Recall rises across every category for opt-in users.
+  - Byte-identical output across *different* hardware is not yet
+    guaranteed (transformer float ops vary by CPU/BLAS threads); logical
+    determinism holds per machine. An ONNX-runtime path is a candidate
+    follow-up if cross-machine byte-identity becomes required.
+  - Behavioral validation against the real model is performed in a
+    network-enabled environment; unit tests mock the model loader.
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.
