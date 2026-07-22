@@ -435,7 +435,7 @@ Entry template:
     opted-in run never silently misses the strong engine's PII classes.
 - **Consequences:**
   - Base install and its footprint are unchanged; only opt-in users pay
-    the ~200–300 MB model + torch cost.
+    the ~1.2 GB model + torch cost.
   - Recall rises across every category for opt-in users.
   - Byte-identical output across *different* hardware is not yet
     guaranteed (transformer float ops vary by CPU/BLAS threads); logical

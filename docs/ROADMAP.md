@@ -33,6 +33,24 @@ local web UI.
 
 ---
 
+## Detection engine — strong ML (ongoing)
+
+**Theme:** Raise recall across every category with an optional, local,
+deterministic ML engine.
+
+- [x] Optional GLiNER strong PII engine (`ML-001`), opt-in via the
+      `redact-ai[strong]` extra — see [ADR-013](./DECISIONS.md)
+- [ ] Real-model behavioral benchmark in a network-enabled environment
+      (unit tests currently mock the model)
+- [ ] Batch OCR lines per page into a single `predict_entities` call (latency)
+- [ ] ONNX runtime + int8 quantization (~300–500 MB RAM, 2–4× faster CPU;
+      also a path to cross-machine byte-identical output)
+- [ ] Multilingual detection via GLiNER — lift the `en-US`-only limitation
+- [ ] Fix the base-install `en_core_web_md` GitHub-URL fragility that
+      403-breaks behind proxies
+
+---
+
 ## v0.2 — Power-user surfaces
 
 **Theme:** Reach the user where the screenshot already is.
