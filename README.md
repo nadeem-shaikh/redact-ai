@@ -23,6 +23,10 @@ sent to ChatGPT, Claude, Gemini, or any other LLM.
    pipx install redact-ai           # end users
    uv sync --extra dev              # contributors (from a checkout)
    ```
+   > **Optional — stronger detection.** For higher recall across every
+   > category, install the GLiNER ML engine and enable rule `ML-001`:
+   > `pipx install "redact-ai[strong]"`. It is **off by default**; see
+   > [Optional: strong ML engine](#optional-strong-ml-engine) below.
 3. **Run:**
    ```bash
    redact-ai                        # opens http://127.0.0.1:<port>
@@ -132,6 +136,45 @@ Manifest (JSON):
 
 > Manifests never include the raw matched text by default. See
 > [ADR-006](./docs/DECISIONS.md).
+
+---
+
+## Optional: strong ML engine
+
+The default detectors are regex, dictionaries, and spaCy NER. For higher
+recall across **every** category — non-Western names, unlabeled IDs,
+addresses without a street suffix, PHI in prose — redact-ai ships an
+optional ML engine, rule **`ML-001`**, built on
+[GLiNER](https://github.com/urchade/GLiNER) (the current best OSS PII NER;
+GLiNER2-PII leads the SPY benchmark). It *complements* the deterministic
+detectors — regex + checksum stays authoritative for structured IDs (Luhn
+PANs, IBAN mod-97, cloud keys).
+
+It is **off by default** and opt-in, because it pulls a transformer runtime
+and a ~200–300 MB model:
+
+```bash
+pipx install "redact-ai[strong]"
+
+# Pre-fetch the model once (the redaction hot path never touches the network):
+huggingface-cli download urchade/gliner_multi_pii-v1 \
+  --revision 1fcf13e85f4eef5394e1fcd406cf2ca9ea82351d
+```
+
+Then enable `ML-001` — see [`examples/strong_policy.yaml`](./examples/strong_policy.yaml)
+for a ready-to-use policy and the overridable `model` / `revision` /
+`score_threshold` / `labels` knobs.
+
+- **Footprint:** the base install is unchanged (≤ 1 GB RAM); with the engine
+  enabled, budget ~2–4 GB RAM and CPU-only inference (GPU optional).
+- **Local-first & deterministic:** the model loads from the local cache
+  (never the network at redaction time) and is pinned to an immutable
+  revision, preserving the reproducibility guarantee.
+- **Fail-closed:** if the extra or model is missing, an enabled `ML-001`
+  fails the request rather than silently skipping the engine.
+
+Full rationale in [ADR-013](./docs/DECISIONS.md); detector spec in
+[`docs/DETECTORS_v0.1.md`](./docs/DETECTORS_v0.1.md#ml-001--gliner-strong-pii-engine-optional).
 
 ---
 

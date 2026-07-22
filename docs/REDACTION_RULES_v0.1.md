@@ -92,6 +92,25 @@ Notes      : Caveats, edge cases, locale variations
 | --- | --- | --- | --- |
 | CU-001 | User-defined regex / dictionary detector | n/a | Off |
 
+### 3.8 ML Engine (optional)
+
+| ID | Description | Example | Default |
+| --- | --- | --- | --- |
+| ML-001 | GLiNER generalist PII engine (transformer NER, all categories) | any PII span | Off |
+
+`ML-001` is an optional, opt-in engine that ships in the `redact-ai[strong]`
+extra and complements the deterministic rules above (see
+[ADR-013](./DECISIONS.md) and
+[`DETECTORS_v0.1.md`](./DETECTORS_v0.1.md#ml-001--gliner-strong-pii-engine-optional)).
+Its findings carry a per-finding category from the label→category map, so they
+flow through the same merge / confidence / manifest path as any other rule.
+
+> **Authoritative rule set:** this catalog is the v0.1 baseline. Rules added
+> after it was frozen (ID-006 statistical name NER, ID-007 face detection,
+> ID-008 payment-recipient names, FI-005 masked account numbers, and ML-001)
+> are specified in [`DETECTORS_v0.1.md`](./DETECTORS_v0.1.md) and their ADRs,
+> which are the source of truth for the current registry.
+
 ---
 
 ## 4. Detection Strategy Notes
