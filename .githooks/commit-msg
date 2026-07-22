@@ -1,0 +1,25 @@
+#!/bin/sh
+# Strip the `Claude-Session:` trailer from commit messages.
+#
+# Some AI coding tools append a `Claude-Session: <url>` trailer to commit
+# messages. It is harmless (the URL is auth-gated) but it does not belong in
+# this project's public history, so this hook removes it before the commit is
+# recorded. The `Co-Authored-By:` trailer is left intact.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# The hook is a no-op for commits that don't contain the trailer.
+set -e
+
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+# Drop any line beginning with "Claude-Session:" (case-insensitive). grep exits
+# non-zero when it filters everything out; a real commit message always keeps
+# content, and the `|| true` guard keeps the hook from aborting the commit.
+tmp="$msg_file.tmp"
+grep -vi '^Claude-Session:[[:space:]]*' "$msg_file" > "$tmp" || true
+mv "$tmp" "$msg_file"
+
+exit 0

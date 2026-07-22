@@ -154,3 +154,17 @@ pip install -e ".[dev,ocr-tesseract]"
 
 The CI matrix mirrors the rows marked "yes" above; see
 [`MVP_BUILD_SPEC_v0.1.md`](./MVP_BUILD_SPEC_v0.1.md) §6.
+
+### Git hooks
+
+The repo ships a `commit-msg` hook in [`.githooks/`](../.githooks/) that
+strips the `Claude-Session:` trailer some AI tools append to commit
+messages (it keeps `Co-Authored-By:`). Hooks aren't enabled automatically,
+so point Git at the tracked hooks directory once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook is a no-op for commits without the trailer, so it's safe to leave
+enabled.
