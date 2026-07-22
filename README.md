@@ -151,19 +151,39 @@ detectors — regex + checksum stays authoritative for structured IDs (Luhn
 PANs, IBAN mod-97, cloud keys).
 
 It is **off by default** and opt-in, because it pulls a transformer runtime
-and a ~200–300 MB model:
+and a ~1.2 GB model:
 
 ```bash
 pipx install "redact-ai[strong]"
+```
 
-# Pre-fetch the model once (the redaction hot path never touches the network):
-huggingface-cli download urchade/gliner_multi_pii-v1 \
+Pre-fetch the pinned model once so the redaction hot path never touches the
+network (the app loads it from the local cache only). `pipx` does not expose
+the Hugging Face CLI from the package, so download it via `pipx run` (or
+`pip install "huggingface_hub[cli]"` in your own environment):
+
+```bash
+pipx run --spec "huggingface_hub[cli]" \
+  huggingface-cli download urchade/gliner_multi_pii-v1 \
   --revision 1fcf13e85f4eef5394e1fcd406cf2ca9ea82351d
 ```
 
-Then enable `ML-001` — see [`examples/strong_policy.yaml`](./examples/strong_policy.yaml)
-for a ready-to-use policy and the overridable `model` / `revision` /
-`score_threshold` / `labels` knobs.
+Alternatively, set `allow_download: true` on `ML-001` for a one-time online
+fetch on first use.
+
+**Enabling `ML-001` in v0.1.** The local web UI always runs the packaged
+`default` policy, and there is no `--policy` CLI flag yet (it ships in v0.2),
+so pointing the browser flow at `examples/strong_policy.yaml` alone is not
+enough. Turn the engine on one of two ways:
+
+- **Python API** —
+  `redact(image_bytes, "image/png", load_policy("examples/strong_policy.yaml"))`.
+- **Edit the packaged default policy** — set `ML-001` to `enabled: true` in
+  `src/redact_ai/resources/default_policy.yaml`, then use the web UI as usual.
+
+See [`examples/strong_policy.yaml`](./examples/strong_policy.yaml) for the
+overridable `model` / `revision` / `score_threshold` / `labels` /
+`allow_download` knobs.
 
 - **Footprint:** the base install is unchanged (≤ 1 GB RAM); with the engine
   enabled, budget ~2–4 GB RAM and CPU-only inference (GPU optional).
