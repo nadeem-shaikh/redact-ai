@@ -48,7 +48,7 @@ def test_no_text_returns_input_unchanged() -> None:
 def test_color_region_outside_text_boxes_is_byte_identical() -> None:
     img = _mixed_image()
     # Word box covers only the top-left text smear, never the colour block.
-    first = _first_pass([("Name", 90, 8, 8, 52, 16)])
+    first = _first_pass([("Name", 40, 8, 8, 52, 16)])
     out = _boost_text_regions(img, first)
 
     src = np.asarray(img)
@@ -63,7 +63,7 @@ def test_color_region_outside_text_boxes_is_byte_identical() -> None:
 
 def test_deterministic() -> None:
     img = _mixed_image()
-    first = _first_pass([("Name", 90, 8, 8, 52, 16)])
+    first = _first_pass([("Name", 40, 8, 8, 52, 16)])
     a = _boost_text_regions(img, first)
     b = _boost_text_regions(img, first)
     assert np.array_equal(np.asarray(a), np.asarray(b))
@@ -73,4 +73,13 @@ def test_negative_confidence_boxes_ignored() -> None:
     img = _mixed_image()
     # conf < 0 is tesseract's "no word here" sentinel — must not seed a region.
     out = _boost_text_regions(img, _first_pass([("", -1, 8, 8, 52, 16)]))
+    assert np.array_equal(np.asarray(img), np.asarray(out))
+
+
+def test_high_confidence_words_left_untouched() -> None:
+    # A word the first pass already read cleanly (conf >= ceiling) must not be
+    # binarised — doing so can lower its confidence and drop a downstream
+    # finding below its policy threshold (the TC-008 regression).
+    img = _mixed_image()
+    out = _boost_text_regions(img, _first_pass([("Name", 96, 8, 8, 52, 16)]))
     assert np.array_equal(np.asarray(img), np.asarray(out))

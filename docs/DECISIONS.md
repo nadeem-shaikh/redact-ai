@@ -446,4 +446,81 @@ Entry template:
 
 ---
 
+## ADR-014 — Add OpenMed as a second optional strong engine (ML-002)
+
+- **Date:** 2026-07-23
+- **Status:** Accepted
+- **Context:** ML-001 (GLiNER, ADR-013) raised recall broadly but is weak
+  on the **structured PHI** a clinical document carries. On a sample OCT eye
+  report, GLiNER missed the patient ID, both dates, the appointment time, and
+  the "Consultant Ophthalmologist" occupation, while a dedicated PII
+  token-classifier (OpenMed) caught them cleanly. Conversely GLiNER is the
+  only engine that reads a free-text diagnosis as a health condition. The two
+  are complementary, not competing.
+- **Decision:** Introduce rule **ML-002 OpenMedPiiDetector**, a transformer
+  `token-classification` de-identification engine built on **OpenMed**
+  (`OpenMed/OpenMed-PII-SuperClinical-Large-434M-v1` by default). It
+  **complements** ML-001 and the deterministic detectors; none is removed.
+  - **Same optional extra, disabled by default.** ML-002 ships in the
+    existing `redact-ai[strong]` extra and is `enabled: false` in the shipped
+    policy. It is enabled alongside ML-001 in `examples/strong_policy.yaml`.
+  - **Own loader, not a model swap into ML-001.** GLiNER uses zero-shot label
+    prompting (`predict_entities`); OpenMed is a fixed-label `transformers`
+    pipeline with `aggregation_strategy="simple"` — different call contracts,
+    separate lazy-imported loaders. Separate rule ids let a policy enable
+    either engine alone.
+  - **Determinism / local-first / fail-closed** are identical to ML-001:
+    eval-mode argmax (NFR-2.3), `local_files_only` from the HF cache
+    (ADR-002), and `E_POLICY`-fatal when the extra or model is absent
+    (ADR-005). Default `score_threshold` 0.5 suppresses the sub-0.5 garble the
+    model emits on poor OCR.
+  - **Extra pin set resolved.** Enabling both engines forced a dependency
+    reconciliation: `gliner` bumped to 0.2.27 (0.2.5 breaks with modern
+    huggingface_hub), `transformers` pinned to 4.53.3 (inside gliner's
+    supported range and used directly by ML-002), and a hard `numpy<2` guard
+    added — the strong extra's graph can otherwise drift numpy to 2.x, which
+    breaks spaCy's compiled thinc ABI and takes ID-006 down with it.
+- **Consequences:**
+  - Opt-in users gain strong structured-PHI recall on top of GLiNER's
+    free-text coverage; base install footprint is unchanged.
+  - Two ML models load when both are enabled (~1.1 GB each). Overlapping
+    findings are deduplicated by the existing merge stage.
+  - Same per-machine (not cross-machine) determinism caveat as ADR-013.
+
+## ADR-015 — Two-pass OCR text-region contrast boost
+
+- **Date:** 2026-07-23
+- **Status:** Accepted
+- **Context:** Detection recall is bounded by OCR (ADR-008). On the sample
+  report, Tesseract read a printed "Dr. Laura Bennett, MD" line and the
+  signature as sub-0.6-confidence noise (`lie hl`), so **no** NER engine —
+  GLiNER, OpenMed, or spaCy — could redact them. The input already clears the
+  ingest upscale floor (`_OCR_TARGET_MIN_SIDE`), so more upscaling was not the
+  lever; low local contrast on small print was.
+- **Decision:** In `TesseractAdapter.recognise`, run a first `image_to_data`
+  pass to locate word boxes, dilate them into text regions, apply Otsu
+  binarisation **only inside those regions** on a copy, then run the
+  authoritative pass on the boosted image. Pixels outside any word box are
+  byte-identical, so colour/medical imagery (OCT B-scans, fundus photos) is
+  never degraded. Deterministic (fixed kernel + Otsu argmax, NFR-2.3); a
+  pure-image input with no word boxes is returned unchanged.
+  - This lives in the OCR adapter, not ingest: binarisation does not move
+    coordinates, so the ingest `AffineTransform` is not involved, and the step
+    is naturally OCR-box-driven. It is engine-agnostic in spirit — a future
+    PaddleOCR adapter would apply the same two-pass shape.
+- **Consequences:**
+  - Recovers small-font printed PII/PHI that all detectors previously missed;
+    on the sample report the patient name, ID, referring doctor, DOB, dates,
+    time, and occupation are now redacted.
+  - Two OCR passes roughly double OCR latency; acceptable for a
+    correctness/privacy gain (a missed identifier is a privacy failure,
+    ADR-005).
+  - **Note — ADR-008 discrepancy.** ADR-008 records PaddleOCR as the intended
+    v0.1 default, but the code ships `TesseractAdapter` (a `paddle.py` adapter
+    stub exists but is not wired). This preprocessing is engine-agnostic and
+    benefits either; reconciling the default-engine choice is tracked
+    separately and out of scope here.
+
+---
+
 > TODO: Future ADRs will be appended here as design choices are made.

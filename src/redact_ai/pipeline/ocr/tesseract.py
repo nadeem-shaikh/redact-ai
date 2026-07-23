@@ -29,6 +29,11 @@ from redact_ai.models.document import (
 from redact_ai.pipeline.ingest import IngestedImage
 from redact_ai.pipeline.ocr.base import OCRAdapter
 
+# First-pass Tesseract confidence (0–100) at or above which a word is
+# considered already cleanly read and is left untouched by the contrast boost.
+# Words read below this are the low-contrast/small-font targets the boost helps.
+_BOOST_CONF_CEILING = 85.0
+
 
 @lru_cache(maxsize=1)
 def _tesseract_version() -> str:
@@ -95,8 +100,14 @@ def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image
     ADR-008). Deterministic: a fixed dilation kernel and Otsu's argmax make the
     output a pure function of the input pixels (NFR-2.3).
 
-    Returns the input unchanged when the first pass found no usable word boxes
-    (a pure image) or when the OpenCV/NumPy stack is unavailable.
+    Only *low-confidence* word regions are boosted (first-pass confidence below
+    ``_BOOST_CONF_CEILING``). Text the first pass already read cleanly is left
+    untouched — binarising already-clean glyphs can *lower* their confidence and
+    push a downstream finding below its policy threshold, so the boost targets
+    exactly the noise-read print (e.g. low-contrast small type) it exists for.
+
+    Returns the input unchanged when the first pass found no low-confidence word
+    boxes or when the OpenCV/NumPy stack is unavailable.
     """
     try:
         import cv2
@@ -115,7 +126,9 @@ def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image
             conf = float(first_pass["conf"][i])
         except (TypeError, ValueError):
             conf = -1.0
-        if conf < 0:
+        # conf < 0 is tesseract's "no word here" sentinel; a high confidence
+        # means the first pass already read this word well — leave it alone.
+        if conf < 0 or conf >= _BOOST_CONF_CEILING:
             continue
         x = int(first_pass["left"][i])
         y = int(first_pass["top"][i])
