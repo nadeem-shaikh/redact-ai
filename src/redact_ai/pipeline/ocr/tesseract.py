@@ -134,7 +134,7 @@ def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image
         y = int(first_pass["top"][i])
         w = int(first_pass["width"][i])
         h = int(first_pass["height"][i])
-        cv2.rectangle(mask, (x, y), (x + w, y + h), color=255, thickness=-1)
+        cv2.rectangle(mask, (x, y), (x + w, y + h), 255, thickness=-1)  # type: ignore[call-overload]
         boxes += 1
 
     if boxes == 0:
@@ -142,8 +142,9 @@ def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image
 
     # A wide, short kernel joins characters within a word/line without bleeding
     # into adjacent image regions.
-    mask = cv2.dilate(mask, np.ones((3, 9), dtype=np.uint8))
+    mask = cv2.dilate(mask, np.ones((3, 9), dtype=np.uint8)).astype(np.uint8)
     binarised = cv2.threshold(grey, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    binarised = binarised.astype(np.uint8)
 
     boosted = np.asarray(image.convert("RGB")).copy()
     region = mask > 0
