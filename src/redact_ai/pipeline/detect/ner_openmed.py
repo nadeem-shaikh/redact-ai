@@ -116,7 +116,7 @@ def _load_openmed(model_name: str, revision: str | None, local_files_only: bool)
     ``revision`` pins the exact weights for reproducibility (NFR-2.3).
     """
     try:
-        from transformers import (  # type: ignore[attr-defined]
+        from transformers import (
             AutoModelForTokenClassification,
             AutoTokenizer,
             pipeline,
@@ -126,7 +126,7 @@ def _load_openmed(model_name: str, revision: str | None, local_files_only: bool)
             "transformers is required for ML-002 but is not installed. " + _INSTALL_HINT
         ) from exc
     try:
-        tokenizer = AutoTokenizer.from_pretrained(  # type: ignore[no-untyped-call]
+        tokenizer = AutoTokenizer.from_pretrained(
             model_name, revision=revision, local_files_only=local_files_only
         )
         model = AutoModelForTokenClassification.from_pretrained(

@@ -165,6 +165,16 @@ exclude = ["tests/golden/_generate.py"]
 module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*", "cv2.*"]
 ignore_missing_imports = true
 
+# transformers (ML-002) ships only in the [strong] extra, so it is present when
+# type-checking locally but absent in the lint/type CI job. `follow_imports=skip`
+# makes mypy treat it as Any in *both* cases, so the detector type-checks
+# identically with or without the extra installed (no environment-dependent
+# unused-ignore churn).
+[[tool.mypy.overrides]]
+module = ["transformers.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
