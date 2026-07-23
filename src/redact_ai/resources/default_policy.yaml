@@ -111,3 +111,9 @@ detectors:
   - id: ML-001
     enabled: false
     threshold: low
+  # ML-002 is the OpenMed strong PHI engine — complements ML-001 with stronger
+  # recall on structured PHI (patient IDs, dates, MRNs). Same `redact-ai[strong]`
+  # extra, also disabled by default. See examples/strong_policy.yaml.
+  - id: ML-002
+    enabled: false
+    threshold: low

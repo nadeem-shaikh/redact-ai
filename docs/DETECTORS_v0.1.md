@@ -486,6 +486,50 @@ Locale: **`en-US` only in v0.1**.
   for the whole request (not a partial-failure warning), so a run never
   silently completes missing the engine the user opted into (ADR-005).
 
+### ML-002 — OpenMed strong PHI engine (optional)
+
+- **Approach:** Statistical, transformer-based `token-classification`
+  de-identification model. Complements ML-001: OpenMed has stronger recall
+  on the **structured PHI** a clinical document carries — patient
+  identifiers, dates of birth, medical-record numbers, appointment times,
+  occupations — where GLiNER is weak, while GLiNER remains better on
+  free-text health conditions. Neither replaces the deterministic detectors,
+  which stay authoritative for validator-backed identifiers. See ADR-014.
+- **Engine:** [OpenMed](https://huggingface.co/OpenMed) via the
+  `transformers` token-classification pipeline. Default model
+  `OpenMed/OpenMed-PII-SuperClinical-Large-434M-v1`; smaller tiers
+  (`Base-184M`, `Small-44M`) trade recall for footprint and are reachable
+  via `overrides.model`.
+- **Packaging:** Optional. Ships in the same `redact-ai[strong]` extra and is
+  `enabled: false` in the default policy. Enable it via
+  `examples/strong_policy.yaml`. Registering the detector does not pull
+  torch — `transformers` is imported lazily on first use.
+- **Match rule:** For every OCR line, run the pipeline with
+  `aggregation_strategy="simple"`. Each entity scoring at or above the
+  threshold has its `entity_group` mapped to a redact-ai `Category`;
+  character offsets map back to OCR tokens with `tokens_covering`.
+- **Category:** Per finding, from the label map. Default map: first/last/
+  middle name, DOB, date, time, age, SSN, passport, national-id, occupation
+  → `IDENTITY`; email / phone / address / zip → `CONTACT`; credit-card /
+  bank-account / IBAN / cvv → `FINANCIAL`; medical-record-number / MRN /
+  health-insurance → `HEALTH`; api-key / password / secret → `CREDENTIALS`;
+  gps / city / state / country → `LOCATION`.
+- **Confidence:** From the model span score — `HIGH` ≥ 0.85, `MEDIUM` ≥
+  0.65, else `LOW` — then capped by the OCR token-confidence floor. The
+  default `score_threshold` of `0.5` suppresses the sub-0.5 garble the model
+  emits on low-quality OCR (e.g. `cvv '268'`, `password '+'`).
+- **Overrides:** `model` (str), `revision` (str), `score_threshold` (float in
+  `[0, 1]`), `labels` (`{entity_group: category}` map), `allow_download`
+  (bool, default `false`). Invalid overrides raise `E_POLICY`.
+- **Determinism:** Model in eval mode with argmax token classification (no
+  sampling) — a pure function of `(model revision, input)` (NFR-2.3).
+- **Local-first:** Loaded with `local_files_only` from the local Hugging Face
+  cache (ADR-002); pre-fetch or set `allow_download: true` for a one-time
+  fetch. A cold cache fails closed.
+- **Fail-closed:** Enabled without `transformers` or a cached model → the
+  detector raises `E_POLICY`, treated as **fatal** for the request (ADR-005),
+  parity with ML-001.
+
 ---
 
 ## Detector Registry
@@ -516,12 +560,13 @@ REGISTRY: dict[str, type[Detector]] = {
     "CR-003": CloudKeyDetector,
     "LO-001": GpsCoordsDetector,
     "CU-001": CustomRegexDetector,
-    "ML-001": GlinerPiiDetector,  # optional strong engine (ADR-013)
+    "ML-001": GlinerPiiDetector,   # optional strong engine (ADR-013)
+    "ML-002": OpenMedPiiDetector,  # optional strong PHI engine (ADR-014)
 }
 ```
 
-`LO-002` is intentionally absent from the v0.1 registry. `ML-001` is
-registered but disabled by default and only runs when the
+`LO-002` is intentionally absent from the v0.1 registry. `ML-001` and
+`ML-002` are registered but disabled by default and only run when the
 `redact-ai[strong]` extra is installed and the rule is enabled in policy.
 
 ---

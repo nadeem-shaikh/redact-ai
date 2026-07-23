@@ -124,3 +124,13 @@ detectors:
   - id: ML-001
     enabled: true
     threshold: low
+  # OpenMed generalist PHI engine — complements ML-001 with stronger recall on
+  # structured PHI (patient IDs, dates of birth, MRNs, appointment times,
+  # occupations). Overridable knobs (defaults apply when omitted):
+  #   overrides:
+  #     model: OpenMed/OpenMed-PII-SuperClinical-Large-434M-v1  # or a smaller tier
+  #     score_threshold: 0.5                 # 0..1 span score cutoff
+  #     labels: { "first_name": IDENTITY, ... }  # entity_group -> category map
+  - id: ML-002
+    enabled: true
+    threshold: low

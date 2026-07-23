@@ -29,6 +29,11 @@ from redact_ai.models.document import (
 from redact_ai.pipeline.ingest import IngestedImage
 from redact_ai.pipeline.ocr.base import OCRAdapter
 
+# First-pass Tesseract confidence (0–100) at or above which a word is
+# considered already cleanly read and is left untouched by the contrast boost.
+# Words read below this are the low-contrast/small-font targets the boost helps.
+_BOOST_CONF_CEILING = 85.0
+
 
 @lru_cache(maxsize=1)
 def _tesseract_version() -> str:
@@ -53,8 +58,20 @@ class TesseractAdapter(OCRAdapter):
             raise ocr_error("tesseract binary not found on PATH")
         image = ingested.normalised
         try:
-            data = pytesseract.image_to_data(
+            # First pass locates text regions; the authoritative pass runs on a
+            # copy whose text regions have been contrast-boosted (ADR-008: OCR
+            # bounds recall, and low-contrast small print reads as noise). The
+            # boost is confined to text regions so colour/medical imagery — OCT
+            # scans, fundus photos — passes through untouched.
+            first = pytesseract.image_to_data(
                 image,
+                lang=self.lang,
+                output_type=pytesseract.Output.DICT,
+                config="--psm 6",
+            )
+            ocr_input = _boost_text_regions(image, first)
+            data = pytesseract.image_to_data(
+                ocr_input,
                 lang=self.lang,
                 output_type=pytesseract.Output.DICT,
                 config="--psm 6",
@@ -71,6 +88,72 @@ class TesseractAdapter(OCRAdapter):
             input_height=ingested.original.height,
             transform=ingested.transform,
         )
+
+
+def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image.Image:
+    """Return a copy of ``image`` with text regions contrast-boosted.
+
+    Uses the first OCR pass's word boxes to build a text-region mask, dilates it
+    so glyph edges are covered, and applies a global-Otsu binarisation *only*
+    inside that mask. Pixels outside any word box are left byte-identical, so
+    non-text imagery (OCT B-scans, fundus photos) is never degraded (FR-2.x /
+    ADR-008). Deterministic: a fixed dilation kernel and Otsu's argmax make the
+    output a pure function of the input pixels (NFR-2.3).
+
+    Only *low-confidence* word regions are boosted (first-pass confidence below
+    ``_BOOST_CONF_CEILING``). Text the first pass already read cleanly is left
+    untouched — binarising already-clean glyphs can *lower* their confidence and
+    push a downstream finding below its policy threshold, so the boost targets
+    exactly the noise-read print (e.g. low-contrast small type) it exists for.
+
+    Returns the input unchanged when the first pass found no low-confidence word
+    boxes or when the OpenCV/NumPy stack is unavailable.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:  # pragma: no cover - both ship in the base install
+        return image
+
+    grey = np.asarray(image.convert("L"))
+    mask = np.zeros(grey.shape, dtype=np.uint8)
+    boxes = 0
+    n = len(first_pass.get("text", []))
+    for i in range(n):
+        if not (first_pass["text"][i] or "").strip():
+            continue
+        try:
+            conf = float(first_pass["conf"][i])
+        except (TypeError, ValueError):
+            conf = -1.0
+        # conf < 0 is tesseract's "no word here" sentinel; a high confidence
+        # means the first pass already read this word well — leave it alone.
+        if conf < 0 or conf >= _BOOST_CONF_CEILING:
+            continue
+        x = int(first_pass["left"][i])
+        y = int(first_pass["top"][i])
+        w = int(first_pass["width"][i])
+        h = int(first_pass["height"][i])
+        # cv2.rectangle endpoints are inclusive; a word box spans [x, x+w) so the
+        # far corner is (x+w-1, y+h-1). max(..., x) guards a zero-width box.
+        cv2.rectangle(  # type: ignore[call-overload]
+            mask, (x, y), (max(x + w - 1, x), max(y + h - 1, y)), 255, thickness=-1
+        )
+        boxes += 1
+
+    if boxes == 0:
+        return image
+
+    # A wide, short kernel joins characters within a word/line without bleeding
+    # into adjacent image regions.
+    mask = cv2.dilate(mask, np.ones((3, 9), dtype=np.uint8)).astype(np.uint8)
+    binarised = cv2.threshold(grey, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    binarised = binarised.astype(np.uint8)
+
+    boosted = np.asarray(image.convert("RGB")).copy()
+    region = mask > 0
+    boosted[region] = binarised[region][:, None]  # grey → RGB by broadcast
+    return Image.fromarray(boosted, mode="RGB")
 
 
 def _compose_page(data: dict[str, Any], *, page_size: tuple[int, int]) -> Page:

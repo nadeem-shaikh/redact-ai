@@ -43,6 +43,7 @@ from redact_ai.pipeline.detect.identity import (
 )
 from redact_ai.pipeline.detect.location import GpsCoordsDetector
 from redact_ai.pipeline.detect.ner_gliner import GlinerPiiDetector
+from redact_ai.pipeline.detect.ner_openmed import OpenMedPiiDetector
 from redact_ai.pipeline.detect.vision import VisionDetector
 from redact_ai.pipeline.detect.vision.face import FacePhotoDetector
 from redact_ai.policy.schema import Policy
@@ -75,6 +76,10 @@ REGISTRY: dict[str, type[Detector]] = {
     # ships in the redact-ai[strong] extra. The module imports gliner lazily,
     # so registering it here does not pull torch into a base install.
     "ML-001": GlinerPiiDetector,
+    # ML-002 — OpenMed strong PHI engine (complements ML-001). Same optional
+    # extra, same lazy-import discipline; transformers is imported only when
+    # the detector actually runs.
+    "ML-002": OpenMedPiiDetector,
 }
 
 VISION_REGISTRY: dict[str, type[VisionDetector]] = {

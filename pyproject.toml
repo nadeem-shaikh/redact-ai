@@ -59,10 +59,23 @@ ocr-paddle = [
 # redaction hot path makes no network call (ADR-002). Enable ML-001 in policy
 # (see examples/strong_policy.yaml) after installing this extra.
 strong = [
-    # Exact pin (matching every other dependency in this project) so the same
-    # redact-ai release always resolves the same GLiNER/transformers/torch code
-    # and ML-001 stays reproducible. Bump deliberately.
-    "gliner==0.2.5",
+    # Exact pins (matching every other dependency in this project) so the same
+    # redact-ai release always resolves the same GLiNER/OpenMed/transformers/
+    # torch code and ML-001/ML-002 stay reproducible. Bump deliberately.
+    #
+    # gliner 0.2.5 predates modern huggingface_hub and breaks with
+    # `GLiNER._from_pretrained() missing ... 'proxies' and 'resume_download'`;
+    # 0.2.27 tracks the current hub/transformers API.
+    "gliner==0.2.27",
+    # ML-002 (OpenMed) loads via a transformers token-classification pipeline,
+    # so transformers is a direct dependency, not only gliner's transitive one.
+    # Kept inside gliner 0.2.27's supported range (>=4.51.3,<5.7.0).
+    "transformers==4.53.3",
+    # Hard guard: spaCy 3.7.5 already requires numpy<2, but the strong extra's
+    # transitive graph can otherwise drift numpy to 2.x, which breaks spaCy's
+    # compiled thinc ABI (`numpy.dtype size changed`). Pin it explicitly so a
+    # `[strong]` install keeps the base engines working.
+    "numpy<2",
 ]
 dev = [
     "pytest==8.3.4",
@@ -150,6 +163,16 @@ exclude = ["tests/golden/_generate.py"]
 
 [[tool.mypy.overrides]]
 module = ["pytesseract.*", "PIL.*", "yaml.*", "spacy.*", "cv2.*"]
+ignore_missing_imports = true
+
+# transformers (ML-002) ships only in the [strong] extra, so it is present when
+# type-checking locally but absent in the lint/type CI job. `follow_imports=skip`
+# makes mypy treat it as Any in *both* cases, so the detector type-checks
+# identically with or without the extra installed (no environment-dependent
+# unused-ignore churn).
+[[tool.mypy.overrides]]
+module = ["transformers.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
