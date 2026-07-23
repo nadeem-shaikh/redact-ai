@@ -60,6 +60,20 @@ def _patch_pipeline(monkeypatch: pytest.MonkeyPatch, spans: list[tuple[str, str,
     monkeypatch.setattr(ner_openmed, "_load_openmed", lambda *a, **k: fake)
 
 
+def _capture_loader(monkeypatch: pytest.MonkeyPatch, spans=None) -> dict:
+    """Patch the loader to record its (model, revision, local_files_only) args."""
+    captured: dict = {}
+
+    def _fake(model_name, revision, local_files_only):
+        captured["model"] = model_name
+        captured["revision"] = revision
+        captured["local_files_only"] = local_files_only
+        return FakePipeline(spans or [])
+
+    monkeypatch.setattr(ner_openmed, "_load_openmed", _fake)
+    return captured
+
+
 def test_first_and_last_name_detected(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_pipeline(
         monkeypatch,
@@ -156,6 +170,66 @@ def test_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [(f.matched_text, f.category, f.confidence) for f in a] == [
         (f.matched_text, f.category, f.confidence) for f in b
     ]
+
+
+def test_default_model_pinned_and_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = _capture_loader(monkeypatch)
+    OpenMedPiiDetector().detect(make_doc(["x"]), load_default_policy())
+    assert cap["model"] == ner_openmed._DEFAULT_MODEL
+    assert cap["revision"] == ner_openmed._DEFAULT_MODEL_REVISION
+    assert cap["local_files_only"] is True  # offline by default (ADR-002)
+
+
+def test_model_override_unpins_default_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = _capture_loader(monkeypatch)
+    policy = _policy_with_override({"model": "some/other-model"})
+    OpenMedPiiDetector().detect(make_doc(["x"]), policy)
+    assert cap["model"] == "some/other-model"
+    assert cap["revision"] is None  # a different repo has its own history
+
+
+def test_revision_override_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = _capture_loader(monkeypatch)
+    policy = _policy_with_override({"model": "some/other-model", "revision": "abc123"})
+    OpenMedPiiDetector().detect(make_doc(["x"]), policy)
+    assert cap["revision"] == "abc123"
+
+
+def test_allow_download_inverts_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = _capture_loader(monkeypatch)
+    policy = _policy_with_override({"allow_download": True})
+    OpenMedPiiDetector().detect(make_doc(["x"]), policy)
+    assert cap["local_files_only"] is False
+
+
+def test_score_threshold_override_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_pipeline(monkeypatch, [("John", "first_name", 0.60)])
+    # Default 0.5 would keep a 0.60 hit; an override of 0.8 must drop it.
+    policy = _policy_with_override({"score_threshold": 0.8})
+    assert OpenMedPiiDetector().detect(make_doc(["John"]), policy) == []
+
+
+@pytest.mark.parametrize(
+    "score,expected",
+    [(0.85, "high"), (0.84, "medium"), (0.65, "medium"), (0.64, "low"), (0.50, "low")],
+)
+def test_score_confidence_boundaries(
+    monkeypatch: pytest.MonkeyPatch, score: float, expected: str
+) -> None:
+    _patch_pipeline(monkeypatch, [("John", "first_name", score)])
+    out = OpenMedPiiDetector().detect(make_doc(["John"]), load_default_policy())
+    assert len(out) == 1
+    assert out[0].confidence == expected
+
+
+def test_multi_line_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_pipeline(
+        monkeypatch,
+        [("John", "first_name", 0.9), ("Smith", "last_name", 0.9), ("Acme", "occupation", 0.9)],
+    )
+    doc = make_doc(["John", "Smith", "Acme"])
+    out = OpenMedPiiDetector().detect(doc, load_default_policy())
+    assert {f.matched_text for f in out} == {"John", "Smith", "Acme"}
 
 
 def _policy_with_override(overrides: dict) -> Policy:

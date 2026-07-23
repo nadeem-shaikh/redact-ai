@@ -83,3 +83,26 @@ def test_high_confidence_words_left_untouched() -> None:
     img = _mixed_image()
     out = _boost_text_regions(img, _first_pass([("Name", 96, 8, 8, 52, 16)]))
     assert np.array_equal(np.asarray(img), np.asarray(out))
+
+
+def test_confidence_ceiling_is_boundary_exact() -> None:
+    from redact_ai.pipeline.ocr.tesseract import _BOOST_CONF_CEILING
+
+    img = _mixed_image()
+    ceil = int(_BOOST_CONF_CEILING)
+    # Exactly at the ceiling → treated as clean, untouched.
+    at = _boost_text_regions(img, _first_pass([("Name", ceil, 8, 8, 52, 16)]))
+    assert np.array_equal(np.asarray(img), np.asarray(at))
+    # Just below the ceiling → boosted.
+    below = _boost_text_regions(img, _first_pass([("Name", ceil - 1, 8, 8, 52, 16)]))
+    assert not np.array_equal(np.asarray(img)[8:24, 8:60], np.asarray(below)[8:24, 8:60])
+
+
+def test_all_words_above_ceiling_returns_input() -> None:
+    # Distinct from the empty-list early return: boxes exist but all are clean,
+    # so the mask stays empty and the input is returned unchanged.
+    img = _mixed_image()
+    out = _boost_text_regions(
+        img, _first_pass([("A", 99, 8, 8, 20, 16), ("B", 100, 40, 8, 20, 16)])
+    )
+    assert np.array_equal(np.asarray(img), np.asarray(out))

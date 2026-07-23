@@ -134,7 +134,11 @@ def _boost_text_regions(image: Image.Image, first_pass: dict[str, Any]) -> Image
         y = int(first_pass["top"][i])
         w = int(first_pass["width"][i])
         h = int(first_pass["height"][i])
-        cv2.rectangle(mask, (x, y), (x + w, y + h), 255, thickness=-1)  # type: ignore[call-overload]
+        # cv2.rectangle endpoints are inclusive; a word box spans [x, x+w) so the
+        # far corner is (x+w-1, y+h-1). max(..., x) guards a zero-width box.
+        cv2.rectangle(  # type: ignore[call-overload]
+            mask, (x, y), (max(x + w - 1, x), max(y + h - 1, y)), 255, thickness=-1
+        )
         boxes += 1
 
     if boxes == 0:
