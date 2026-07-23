@@ -241,9 +241,7 @@ class OpenMedPiiDetector:
                     for ent in entities:
                         if float(ent.get("score", 1.0)) < score_threshold:
                             continue
-                        category = label_map.get(
-                            str(ent.get("entity_group", "")).strip().lower()
-                        )
+                        category = label_map.get(str(ent.get("entity_group", "")).strip().lower())
                         if category is None:
                             continue
                         start = int(ent["start"])
